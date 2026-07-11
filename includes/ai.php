@@ -13,7 +13,8 @@ function analyze_food_photo(string $apiKey, string $dataUrl): array {
     }
 
     $payload = json_encode([
-        'model' => 'claude-sonnet-5',
+        // Haiku 4.5: cheapest vision-capable model (~$0.0025/scan) — plenty for food recognition
+        'model' => 'claude-haiku-4-5',
         'max_tokens' => 1024,
         'messages' => [[
             'role' => 'user',
