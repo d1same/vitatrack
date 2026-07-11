@@ -7,3 +7,6 @@ deployment:
     - /bin/cp .htaccess $DEPLOYPATH/
     - /bin/cp -R assets icons includes $DEPLOYPATH/
     - /bin/cp data/.htaccess $DEPLOYPATH/data/
+    - /bin/mkdir -p $DEPLOYPATH/.well-known
+    - /bin/cp .well-known/assetlinks.json $DEPLOYPATH/.well-known/
+    - /bin/cp vitatrack.apk $DEPLOYPATH/ || /bin/true

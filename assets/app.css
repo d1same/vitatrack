@@ -505,6 +505,9 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
   transition: transform 0.12s;
 }
 .mini-act:active { transform: scale(0.85); }
+.fav-btn { color: var(--text3); flex: none; align-self: center; }
+.fav-btn.faved { color: var(--red); background: var(--red-soft); }
+.fav-btn.faved svg { fill: var(--red); }
 
 /* ── Health score pill ── */
 .score-pill {

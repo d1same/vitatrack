@@ -427,8 +427,24 @@ case 'fasts': {
 
 // ── Recipes & workouts ──────────────────────────────────────────────
 case 'recipes': {
-    require_user();
-    out(['ok' => true, 'recipes' => db()->query("SELECT * FROM recipes ORDER BY tag, name")->fetchAll()]);
+    $uid = require_user();
+    $st = db()->prepare("SELECT name FROM recipe_favs WHERE user_id=?");
+    $st->execute([$uid]);
+    out(['ok' => true,
+         'recipes' => db()->query("SELECT * FROM recipes ORDER BY tag, name")->fetchAll(),
+         'favs' => array_column($st->fetchAll(), 'name')]);
+}
+
+case 'fav_recipe': {
+    $uid = require_user();
+    $name = substr(trim((string)($in['name'] ?? '')), 0, 120);
+    if ($name === '') fail('Missing recipe name');
+    if (!empty($in['on'])) {
+        db()->prepare("INSERT OR IGNORE INTO recipe_favs (user_id, name) VALUES (?,?)")->execute([$uid, $name]);
+    } else {
+        db()->prepare("DELETE FROM recipe_favs WHERE user_id=? AND name=?")->execute([$uid, $name]);
+    }
+    out(['ok' => true]);
 }
 
 case 'exercises': {

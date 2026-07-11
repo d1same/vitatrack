@@ -186,6 +186,7 @@ const LUCIDE = {
   glucose: '<path d="M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z" /> <path d="M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97" />',
   x: '<path d="M18 6 6 18" /> <path d="m6 6 12 12" />',
   plus: '<path d="M5 12h14" /> <path d="M12 5v14" />',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />',
 };
 const ic = (n, s = 18, sw = 1.8) =>
   `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[n] || ''}</svg>`;
@@ -688,7 +689,7 @@ const fmtDur = ms => {
 
 async function renderCoach(day, m) {
   const el = $('#coachCard'); if (!el) return;
-  if (!S.recipes) S.recipes = (await api('recipes')).recipes || [];
+  await loadRecipes();
   if (!S.exercises) S.exercises = (await api('exercises')).exercises || [];
   const lr = await api('lessons');
   const nextLesson = (lr.lessons || []).find(l => !lr.reads[l.id]);
@@ -712,6 +713,8 @@ async function renderCoach(day, m) {
   const conds = userConditions(S.profile);
   const safe = pool.filter(r => conds.every(c => recipeOkForCondition(r, c)));
   if (safe.length) pool = safe;
+  const favs = pool.filter(r => S.recipeFavs && S.recipeFavs.has(r.name));
+  if (favs.length) pool = favs; // suggest from favorites when possible
   const rec = pool[new Date().getDate() % Math.max(1, pool.length)];
   let exPool = S.exercises.filter(e => e.difficulty !== 'hard');
   if (issues.includes('back')) exPool = exPool.filter(e => +e.back_safe);
@@ -1286,7 +1289,7 @@ function renderMore() {
   const items = [
     ['progress', 'chart', 'Progress & charts', 'Weight, calories, biometrics, streaks'],
     ['learn', 'bulb', 'Learn', 'Daily 2-minute coaching lessons'],
-    ['recipes', 'chefhat', 'Keto recipes', 'Meal ideas with macros'],
+    ['recipes', 'chefhat', 'Recipes', 'Keto, low-carb & balanced meal ideas'],
     ['workouts', 'dumbbell', 'Workouts', 'Back-safe exercise library'],
     ['settings', 'gear', 'Settings', 'Profile, reminders, AI key, theme'],
   ];
@@ -1515,6 +1518,20 @@ function openBioSheet() {
 }
 
 // ══ RECIPES ═══════════════════════════════════════════════════════════
+async function loadRecipes() {
+  if (!S.recipes) {
+    const r = await api('recipes');
+    S.recipes = r.recipes || [];
+    S.recipeFavs = new Set(r.favs || []);
+  }
+}
+window.toggleFavRecipe = async name => {
+  const on = !S.recipeFavs.has(name);
+  if (on) S.recipeFavs.add(name); else S.recipeFavs.delete(name);
+  await api('fav_recipe', { name, on });
+  return on;
+};
+
 const DIET_BADGE = { keto: ['Keto', 'green'], lowcarb: ['Low-carb', 'blue'], balanced: ['Balanced', 'orange'] };
 
 function recipeBadges(r, conds, all = false) {
@@ -1527,7 +1544,7 @@ function recipeBadges(r, conds, all = false) {
 }
 
 async function renderRecipes() {
-  if (!S.recipes) S.recipes = (await api('recipes')).recipes || [];
+  await loadRecipes();
   const p = S.profile;
   const conds = userConditions(p);
   if (S._recipeDiet === undefined) S._recipeDiet = p.diet && DIET_BADGE[p.diet] ? p.diet : 'all';
@@ -1537,7 +1554,10 @@ async function renderRecipes() {
   const dietOk = r => S._recipeDiet === 'all' || r.diet === S._recipeDiet
     || (S._recipeDiet === 'lowcarb' && r.diet === 'keto'); // keto also qualifies as low-carb
   const condOk = r => !S._recipeSafe || !conds.length || conds.every(c => recipeOkForCondition(r, c));
-  const list = S.recipes.filter(r => (tag === 'all' || r.tag === tag) && dietOk(r) && condOk(r));
+  const isFav = r => S.recipeFavs.has(r.name);
+  let list = S.recipes.filter(r => (tag === 'all' || r.tag === tag) && dietOk(r) && condOk(r));
+  if (S._recipeFavOnly) list = list.filter(isFav);
+  list = [...list.filter(isFav), ...list.filter(r => !isFav(r))]; // favorites first
 
   shell(`<div class="screen">
     <div class="screen-header"><div><div class="screen-title">Recipes</div>
@@ -1549,23 +1569,31 @@ async function renderRecipes() {
     <div class="chips" style="margin-bottom:14px">${tags.map(t =>
       `<button class="chip ${t === tag ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
       ${conds.length ? `<button class="chip ${S._recipeSafe ? 'on' : ''}" id="safeChip">${ic('heartpulse', 13)} Safe for me</button>` : ''}
+      <button class="chip ${S._recipeFavOnly ? 'on' : ''}" id="favChip">${ic('heart', 13)} Favorites${S.recipeFavs.size ? ' (' + S.recipeFavs.size + ')' : ''}</button>
     </div>
     ${list.map(r => `<div class="list-item" data-r="${r.id}">
       <div class="em">${r.emoji}</div>
       <div class="grow"><h4>${esc(r.name)}</h4>
         <div class="meta">⏱ ${r.minutes} min · ${Math.round(r.kcal)} kcal · P${Math.round(r.protein)} C${Math.round(r.carbs)} F${Math.round(r.fat)}</div>
         ${recipeBadges(r, conds)}</div>
-      <span class="muted">${ic('chevron', 15)}</span></div>`).join('')
-      || `<div class="empty"><div class="em">${ic('chefhat', 34)}</div>No recipes match these filters — try All or turn off a filter.</div>`}
+      <button class="mini-act fav-btn ${isFav(r) ? 'faved' : ''}" data-fav="${esc(r.name)}" title="Favorite">${ic('heart', 15)}</button>
+    </div>`).join('')
+      || `<div class="empty"><div class="em">${ic('chefhat', 34)}</div>${S._recipeFavOnly ? 'No favorites yet — tap the heart on any recipe.' : 'No recipes match these filters — try All or turn off a filter.'}</div>`}
   </div>`);
   document.querySelectorAll('[data-diet]').forEach(b => b.onclick = () => { S._recipeDiet = b.dataset.diet; render(); });
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { S._recipeTag = b.dataset.t; render(); });
   const sc = $('#safeChip');
   if (sc) sc.onclick = () => { S._recipeSafe = !S._recipeSafe; render(); };
+  $('#favChip').onclick = () => { S._recipeFavOnly = !S._recipeFavOnly; render(); };
+  document.querySelectorAll('[data-fav]').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    const on = await toggleFavRecipe(b.dataset.fav);
+    b.classList.toggle('faved', on);
+  });
   document.querySelectorAll('[data-r]').forEach(b => b.onclick = () => openRecipe(+b.dataset.r));
 }
 window.openRecipe = async id => {
-  if (!S.recipes) S.recipes = (await api('recipes')).recipes || [];
+  await loadRecipes();
   const r = S.recipes.find(x => +x.id === +id); if (!r) return;
   const sh = openSheet(`
     <div style="text-align:center;font-size:52px">${r.emoji}</div>
@@ -1584,7 +1612,13 @@ window.openRecipe = async id => {
       <b class="row" style="gap:7px">${ic('chefhat', 15)} Instructions</b>
       <p style="margin-top:8px;font-size:14px;line-height:1.7">${esc(r.instructions)}</p>
     </div>
-    <button class="btn" id="rLog">Log 1 serving to diary</button>`);
+    <button class="btn" id="rLog">Log 1 serving to diary</button>
+    <button class="btn ghost small" id="rFav" style="width:100%;margin-top:8px">${S.recipeFavs.has(r.name) ? 'Remove from favorites' : ic('heart', 14) + ' Add to favorites'}</button>`);
+  sh.querySelector('#rFav').onclick = async () => {
+    const on = await toggleFavRecipe(r.name);
+    sh.querySelector('#rFav').innerHTML = on ? 'Remove from favorites' : ic('heart', 14) + ' Add to favorites';
+    toast(on ? 'Added to favorites' : 'Removed from favorites');
+  };
   sh.querySelector('#rLog').onclick = async () => {
     const meal = r.tag === 'snack' ? 'snacks' : r.tag;
     await api('log_food', { date: todayStr(), meal, name: r.name, grams: 1,

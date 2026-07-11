@@ -151,6 +151,11 @@ function init_schema(PDO $pdo): void {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ord INTEGER, emoji TEXT, category TEXT, title TEXT, body TEXT
     )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS recipe_favs (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        PRIMARY KEY(user_id, name)
+    )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS auth_tokens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
