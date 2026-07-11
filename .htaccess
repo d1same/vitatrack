@@ -2,6 +2,12 @@
 DirectoryIndex index.php
 Options -Indexes
 
+# Use PHP 8.3 (cPanel/EasyApache handler). If your host offers a different
+# 8.x version, change ea-php83 to ea-php82 / ea-php81 accordingly.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php83 .php .phtml
+</IfModule>
+
 <IfModule mod_headers.c>
   Header set X-Frame-Options "SAMEORIGIN"
   Header set X-Content-Type-Options "nosniff"
