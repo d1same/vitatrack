@@ -228,29 +228,79 @@ function renderAuth(mode = 'login') {
       <div id="authErr"></div>
       ${mode === 'register' ? `<div class="field"><label>Your name</label><input id="aName" placeholder="e.g. Mohammad" autocomplete="name"></div>` : ''}
       <div class="field"><label>Email</label><input id="aEmail" type="email" placeholder="you@email.com" autocomplete="email" inputmode="email"></div>
-      <div class="field"><label>Password</label><input id="aPass" type="password" placeholder="${mode === 'register' ? 'At least 6 characters' : 'Your password'}" autocomplete="${mode === 'register' ? 'new-password' : 'current-password'}"></div>
-      <button class="btn" id="aGo">${mode === 'register' ? 'Create my account' : 'Sign in'}</button>
+      ${mode === 'forgot' ? '' : `<div class="field"><label>Password</label><input id="aPass" type="password" placeholder="${mode === 'register' ? 'At least 6 characters' : 'Your password'}" autocomplete="${mode === 'register' ? 'new-password' : 'current-password'}"></div>`}
+      <button class="btn" id="aGo">${mode === 'register' ? 'Create my account' : mode === 'forgot' ? 'Send reset link' : 'Sign in'}</button>
+      ${mode === 'login' ? '<div class="tiny" style="text-align:center;margin-top:12px"><b id="aForgot" style="color:var(--accent);cursor:pointer">Forgot your password?</b></div>' : ''}
+      ${mode === 'forgot' ? '<div class="tiny" style="margin-top:12px">We\'ll email you a link that lets you choose a new password. The link works for 1 hour.</div>' : ''}
     </div>
     <div class="auth-toggle">
-      ${mode === 'register' ? 'Already have an account? <b id="aSwap">Sign in</b>' : 'New here? <b id="aSwap">Create an account</b>'}
+      ${mode === 'register' ? 'Already have an account? <b id="aSwap">Sign in</b>'
+        : mode === 'forgot' ? 'Remembered it? <b id="aSwap">Sign in</b>'
+        : 'New here? <b id="aSwap">Create an account</b>'}
     </div>
   </div>`;
-  $('#aSwap').onclick = () => renderAuth(mode === 'register' ? 'login' : 'register');
+  $('#aSwap').onclick = () => renderAuth(mode === 'login' ? 'register' : 'login');
+  const fg = $('#aForgot');
+  if (fg) fg.onclick = () => renderAuth('forgot');
   const go = async () => {
-    const btn = $('#aGo'); btn.disabled = true; btn.textContent = 'Please wait…';
+    const btn = $('#aGo'); const lbl = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Please wait…';
+    if (mode === 'forgot') {
+      const r = await api('request_reset', { email: $('#aEmail').value });
+      if (!r.ok) {
+        $('#authErr').innerHTML = `<div class="error-msg">${esc(r.error)}</div>`;
+        btn.disabled = false; btn.textContent = lbl; return;
+      }
+      toast(r.message || 'Check your email');
+      renderAuth('login'); return;
+    }
     const body = { email: $('#aEmail').value, password: $('#aPass').value };
     if (mode === 'register') body.name = $('#aName').value;
     const r = await api(mode, body);
     if (!r.ok) {
       $('#authErr').innerHTML = `<div class="error-msg">${esc(r.error)}</div>`;
-      btn.disabled = false; btn.textContent = mode === 'register' ? 'Create my account' : 'Sign in';
+      btn.disabled = false; btn.textContent = lbl;
       return;
     }
     S.user = r.user; S.profile = r.profile; S.settings = r.settings || {};
     applyTheme(); render();
   };
   $('#aGo').onclick = go;
-  $('#aPass').addEventListener('keydown', e => e.key === 'Enter' && go());
+  const pw = $('#aPass');
+  if (pw) pw.addEventListener('keydown', e => e.key === 'Enter' && go());
+}
+
+// Set-new-password screen, reached from the emailed link (index.php?reset=TOKEN)
+function renderReset() {
+  app().innerHTML = `
+  <div class="auth-wrap">
+    <div class="auth-hero">
+      <div class="logo brandmark">${ic('lock', 32, 1.6)}</div>
+      <h1>New password</h1>
+      <p>Choose a new password for your account.</p>
+    </div>
+    <div class="card">
+      <div id="authErr"></div>
+      <div class="field"><label>New password</label><input id="rp1" type="password" placeholder="At least 6 characters" autocomplete="new-password"></div>
+      <div class="field"><label>Repeat new password</label><input id="rp2" type="password" autocomplete="new-password"></div>
+      <button class="btn" id="rpGo">Set new password</button>
+    </div>
+    <div class="auth-toggle"><b id="rpBack">Back to sign in</b></div>
+  </div>`;
+  $('#rpBack').onclick = () => { S._resetToken = null; history.replaceState({}, '', location.pathname); renderAuth('login'); };
+  $('#rpGo').onclick = async () => {
+    if ($('#rp1').value !== $('#rp2').value) return toast('Passwords do not match');
+    const btn = $('#rpGo'); btn.disabled = true;
+    const r = await api('reset_password', { token: S._resetToken, password: $('#rp1').value });
+    if (!r.ok) {
+      $('#authErr').innerHTML = `<div class="error-msg">${esc(r.error)}</div>`;
+      btn.disabled = false; return;
+    }
+    S._resetToken = null;
+    history.replaceState({}, '', location.pathname);
+    toast('Password updated — sign in with it now');
+    renderAuth('login');
+  };
 }
 
 // ══ ONBOARDING ════════════════════════════════════════════════════════
@@ -1608,7 +1658,10 @@ async function renderSettings() {
       <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('user', 16)}</span>${esc(S.user.name)}
         <span class="grow"></span><span class="tiny">${esc(S.user.email)}</span></div>
       <div class="muted" style="margin-bottom:10px">Plan: ${p.kcal_target} kcal · P${p.protein_g} C${p.carbs_g} F${p.fat_g} · ${esc(p.diet)} · fasting ${esc(p.fasting_plan)}</div>
-      <button class="btn small secondary" id="sEditProfile">Edit profile & recalculate plan</button>
+      <div class="row" style="gap:8px">
+        <button class="btn small secondary grow" id="sEditProfile">Edit profile & plan</button>
+        <button class="btn small secondary" id="sChangePw">${ic('lock', 14)} Password</button>
+      </div>
     </div>
 
     <div class="card">
@@ -1645,6 +1698,16 @@ async function renderSettings() {
   </div>`);
 
   $('#sEditProfile').onclick = () => { OB.step = 0; OB.data = {}; S.profile.onboarded = 0; render(); };
+  $('#sChangePw').onclick = () => {
+    const sh = openSheet(`<h3>Change password</h3>
+      <div class="field"><label>Current password</label><input id="cp0" type="password" autocomplete="current-password"></div>
+      <div class="field"><label>New password</label><input id="cp1" type="password" placeholder="At least 6 characters" autocomplete="new-password"></div>
+      <button class="btn" id="cpGo">Update password</button>`);
+    sh.querySelector('#cpGo').onclick = async () => {
+      const r = await api('change_password', { current: sh.querySelector('#cp0').value, new: sh.querySelector('#cp1').value });
+      if (r.ok) { closeSheet(); toast('Password updated'); } else toast(r.error);
+    };
+  };
   $('#segTheme').querySelectorAll('button').forEach(b => b.onclick = async () => {
     S.settings.theme = b.dataset.v; localStorage.setItem('vt_theme', b.dataset.v);
     await api('save_settings', { theme: b.dataset.v }); applyTheme(); render();
@@ -1750,6 +1813,7 @@ setInterval(reminderTick, 60000);
 // ══ ROUTER ════════════════════════════════════════════════════════════
 async function render() {
   clearInterval(S.fastTimer);
+  if (S._resetToken) return renderReset();
   if (!S.user) return renderAuth();
   if (!+S.profile?.onboarded) return renderOnboarding();
   const views = { home: renderHome, diary: renderDiary, fast: renderFast, more: renderMore,
@@ -1762,6 +1826,8 @@ async function render() {
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.installPrompt = e; });
 (async function boot() {
   applyTheme();
+  const rt = new URLSearchParams(location.search).get('reset');
+  if (rt && /^[0-9a-f]{64}$/.test(rt)) S._resetToken = rt;
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
     if ('PushManager' in window) {

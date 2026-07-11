@@ -169,6 +169,7 @@ function init_schema(PDO $pdo): void {
     $foodsUpgraded = ensure_cols($pdo, 'foods', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
     ensure_cols($pdo, 'diary', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
     $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0']);
+    ensure_cols($pdo, 'users', ['reset_token' => 'TEXT', 'reset_expires' => 'INTEGER', 'reset_requested' => 'INTEGER']);
 
     seed($pdo, $foodsUpgraded, $recipesUpgraded);
 }

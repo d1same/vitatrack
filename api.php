@@ -71,6 +71,61 @@ case 'login': {
 
 case 'logout': logout_user(); out(['ok' => true]);
 
+case 'change_password': {
+    $uid = require_user();
+    $st = db()->prepare("SELECT pass_hash FROM users WHERE id=?");
+    $st->execute([$uid]);
+    if (!password_verify((string)($in['current'] ?? ''), $st->fetch()['pass_hash'] ?? '')) {
+        fail('Current password is wrong');
+    }
+    if (strlen((string)($in['new'] ?? '')) < 6) fail('New password must be at least 6 characters');
+    db()->prepare("UPDATE users SET pass_hash=? WHERE id=?")
+      ->execute([password_hash((string)$in['new'], PASSWORD_DEFAULT), $uid]);
+    out(['ok' => true]);
+}
+
+case 'request_reset': {
+    $email = strtolower(trim((string)($in['email'] ?? '')));
+    $generic = 'If that email is registered, a reset link is on its way. Check spam too.';
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) out(['ok' => true, 'message' => $generic]);
+    $st = db()->prepare("SELECT id, reset_requested FROM users WHERE email=?");
+    $st->execute([$email]);
+    $u = $st->fetch();
+    if (!$u) out(['ok' => true, 'message' => $generic]);
+    if ((int)($u['reset_requested'] ?? 0) > time() - 120) out(['ok' => true, 'message' => $generic]); // throttle
+    $token = bin2hex(random_bytes(32));
+    db()->prepare("UPDATE users SET reset_token=?, reset_expires=?, reset_requested=? WHERE id=?")
+      ->execute([hash('sha256', $token), time() + 3600, time(), $u['id']]);
+    $host = preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST'] ?? 'localhost');
+    $scheme = !empty($_SERVER['HTTPS']) ? 'https' : 'http';
+    $dir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
+    $link = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . $dir . '/index.php?reset=' . $token;
+    $sent = @mail(
+        $email,
+        'VitaTrack password reset',
+        "Someone requested a password reset for your VitaTrack account.\n\n"
+        . "Reset link (valid for 1 hour):\n$link\n\n"
+        . "If this wasn't you, you can ignore this email.",
+        "From: VitaTrack <noreply@$host>\r\nContent-Type: text/plain; charset=UTF-8"
+    );
+    if (!$sent) fail('This server could not send email — ask the site owner to reset your password.');
+    out(['ok' => true, 'message' => $generic]);
+}
+
+case 'reset_password': {
+    $token = (string)($in['token'] ?? '');
+    $pass = (string)($in['password'] ?? '');
+    if (strlen($pass) < 6) fail('Password must be at least 6 characters');
+    if (strlen($token) !== 64 || !ctype_xdigit($token)) fail('Invalid or expired reset link — request a new one');
+    $st = db()->prepare("SELECT id FROM users WHERE reset_token=? AND reset_expires > ?");
+    $st->execute([hash('sha256', $token), time()]);
+    $u = $st->fetch();
+    if (!$u) fail('Invalid or expired reset link — request a new one');
+    db()->prepare("UPDATE users SET pass_hash=?, reset_token=NULL, reset_expires=NULL WHERE id=?")
+      ->execute([password_hash($pass, PASSWORD_DEFAULT), $u['id']]);
+    out(['ok' => true]);
+}
+
 case 'me': {
     $uid = current_user_id();
     if (!$uid) out(['ok' => true, 'user' => null]);
