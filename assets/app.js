@@ -573,7 +573,7 @@ async function renderHome() {
     <div class="quick-row">
       <button class="quick-btn" onclick="openAddSheet()">${ic('utensils', 20)}<span>Food</span></button>
       <button class="quick-btn" onclick="openAddSheet(null,'barcode')">${ic('barcode', 20)}<span>Scan</span></button>
-      <button class="quick-btn" onclick="addWater(250)">${ic('droplet', 20)}<span>+250 ml</span></button>
+      <button class="quick-btn" onclick="openAddSheet(null,'photo')">${ic('camera', 20)}<span>Photo</span></button>
       <button class="quick-btn" onclick="openWeightSheet()">${ic('scale', 20)}<span>Weigh</span></button>
     </div>
 
@@ -961,6 +961,13 @@ function openAddSheet(meal, tab0) {
 }
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+// base64url → Uint8Array (for the VAPID applicationServerKey)
+function b64ToU8(s) {
+  const pad = '='.repeat((4 - s.length % 4) % 4);
+  const b = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(b, c => c.charCodeAt(0));
+}
 
 const _scripts = {};
 function loadScript(src) {
@@ -1552,11 +1559,13 @@ async function renderSettings() {
 
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('bell', 16)}</span>Reminders</div>
-      <div class="muted" style="margin-bottom:12px">Notifications fire while the app is open or installed on your home screen.</div>
+      <div class="muted" style="margin-bottom:12px">Pick which reminders you want, then turn on background notifications so they arrive even when the app is closed.</div>
       ${[['reminders_water', 'Drink water (every 2h, 9am–9pm)'], ['reminders_meals', 'Meal times (8:00, 13:00, 19:00)'], ['reminders_weight', 'Morning weigh-in (8:00)']].map(([k, lbl]) => `
         <label class="row" style="padding:8px 0;justify-content:space-between;font-size:14.5px">${lbl}
           <input type="checkbox" data-rem="${k}" ${st[k] === '1' ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--accent)"></label>`).join('')}
-      <div id="notifState" class="tiny" style="margin-top:6px"></div>
+      <div class="spacer"></div>
+      <button class="btn small secondary" id="sPush" style="width:100%">Checking…</button>
+      <div id="notifState" class="tiny" style="margin-top:8px"></div>
     </div>
 
     <div class="card">
@@ -1589,12 +1598,49 @@ async function renderSettings() {
   });
   const updateNotifState = () => {
     const el = $('#notifState'); if (!el) return;
-    if (!('Notification' in window)) el.textContent = 'ℹ️ This browser does not support notifications. On iPhone: install the app to your home screen first (Share → Add to Home Screen).';
-    else if (Notification.permission === 'denied') el.textContent = '⚠️ Notifications are blocked in browser settings.';
-    else if (Notification.permission === 'granted') el.textContent = '✓ Notifications enabled on this device.';
+    if (!('Notification' in window)) el.textContent = 'This browser does not support notifications. On iPhone: install the app to your home screen first (Share → Add to Home Screen).';
+    else if (Notification.permission === 'denied') el.textContent = 'Notifications are blocked in browser settings.';
+    else if (Notification.permission === 'granted') el.textContent = 'Notifications allowed on this device.';
     else el.textContent = 'Turn on a reminder to allow notifications.';
   };
   updateNotifState();
+
+  // Background push (works even when the app is closed — needs the cron job on the server)
+  const setPushBtn = async () => {
+    const btn = $('#sPush'); if (!btn) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      btn.textContent = 'Background notifications not supported in this browser';
+      btn.disabled = true; return;
+    }
+    let sub = null;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      sub = await reg.pushManager.getSubscription();
+    } catch (e) { btn.textContent = 'Background notifications unavailable'; btn.disabled = true; return; }
+    S._pushOn = !!sub;
+    btn.disabled = false;
+    btn.textContent = sub ? 'Background notifications: ON — tap to turn off' : 'Enable background notifications';
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        if (sub) {
+          await api('push_unsubscribe', { endpoint: sub.endpoint });
+          await sub.unsubscribe();
+          toast('Background notifications off');
+        } else {
+          const perm = await Notification.requestPermission();
+          if (perm !== 'granted') { toast('Allow notifications first'); btn.disabled = false; return; }
+          const vk = (await api('vapid_key')).key;
+          const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(vk) });
+          await api('push_subscribe', { endpoint: s.endpoint, tz_offset: -new Date().getTimezoneOffset() });
+          toast('Background notifications on');
+        }
+      } catch (e) { toast('Push setup failed: ' + (e.message || e)); }
+      setPushBtn();
+    };
+  };
+  setPushBtn();
   $('#sKeySave').onclick = async () => {
     const v = $('#sKey').value.trim();
     if (!v) return toast('Paste your API key first');
@@ -1615,6 +1661,7 @@ function notify(title, body, tag) {
 }
 function reminderTick() {
   if (!S.user || !S.profile?.onboarded) return;
+  if (S._pushOn) return; // server-side push handles reminders on this device
   const st = S.settings, now = new Date(), h = now.getHours(), mi = now.getMinutes();
   const fired = key => {
     const k = 'vt_rem_' + key + '_' + todayStr() + '_' + h;
@@ -1653,7 +1700,15 @@ async function render() {
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.installPrompt = e; });
 (async function boot() {
   applyTheme();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    if ('PushManager' in window) {
+      navigator.serviceWorker.ready
+        .then(r => r.pushManager.getSubscription())
+        .then(s => { S._pushOn = !!s; })
+        .catch(() => {});
+    }
+  }
   const r = await api('me');
   if (r.ok && r.user) { S.user = r.user; S.profile = r.profile; S.settings = r.settings || {}; }
   applyTheme();

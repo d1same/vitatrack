@@ -1,6 +1,6 @@
 // Service worker: offline shell cache + notification display.
-const CACHE = 'vitatrack-v12';
-const SHELL = ['./index.php', './assets/app.css?v=12', './assets/app.js?v=12', './assets/fonts/InterVariable.woff2', './icons/icon.svg'];
+const CACHE = 'vitatrack-v13';
+const SHELL = ['./index.php', './assets/app.css?v=13', './assets/app.js?v=13', './assets/fonts/InterVariable.woff2', './icons/icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -38,6 +38,24 @@ self.addEventListener('message', e => {
       tag: d.tag || 'vitatrack',
     });
   }
+});
+
+// Background push: the server sends an empty push; we fetch what to show.
+self.addEventListener('push', e => {
+  e.waitUntil(
+    fetch('./api.php?action=due_reminder', { method: 'POST', body: '{}', credentials: 'same-origin' })
+      .then(r => r.json())
+      .catch(() => null)
+      .then(d => {
+        const n = d && d.title ? d : { title: 'VitaTrack', body: 'Time for a healthy habit — log your day.' };
+        return self.registration.showNotification(n.title, {
+          body: n.body,
+          icon: './icons/icon-180.php',
+          badge: './icons/icon-180.php',
+          tag: 'vt-reminder',
+        });
+      })
+  );
 });
 
 self.addEventListener('notificationclick', e => {

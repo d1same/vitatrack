@@ -53,6 +53,24 @@ runs on any cPanel shared host with zero configuration.
 2. In the app: **More → Settings → AI photo scan** → paste the key → Save.
    The key is stored server-side in your database and never sent back to browsers.
 
+### 🔔 Background notifications (reminders when the app is closed)
+1. Deploy, then in cPanel → **Cron Jobs** add (every 15 minutes):
+   `*/15 * * * *  /usr/local/bin/php /home/YOURUSER/path-to-site/cron.php`
+2. In the app: **Settings → Reminders** → pick your reminders → tap
+   **Enable background notifications** and allow the permission prompt.
+Reminders now arrive via Web Push even when the app isn't running.
+(iPhone requires the app installed to the home screen, iOS 16.4+.)
+
+### 🤖 Android app (Play-Store-style package)
+The app is a PWA, so Android can wrap it into a real APK with zero code changes:
+1. Go to **pwabuilder.com**, enter your site URL, click **Package for Stores → Android**.
+2. Download the package — you get a signed `.apk` (sideload onto any phone) and an
+   `.aab` (for the Play Store, $25 one-time developer account).
+3. PWABuilder shows a **Digital Asset Links** snippet (`assetlinks.json`) with your
+   signing-key fingerprint — upload it to `.well-known/assetlinks.json` on your site
+   to remove the browser bar so it looks 100% native.
+The Android app shares the same server, accounts, and background notifications.
+
 ## 🔄 Updating
 Upload the new files over the old ones. **Never overwrite the `data/` folder** — that's
 where all user data lives. Back it up by downloading `data/health.sqlite` occasionally.

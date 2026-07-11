@@ -147,6 +147,13 @@ function init_schema(PDO $pdo): void {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ord INTEGER, emoji TEXT, category TEXT, title TEXT, body TEXT
     )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS push_subs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        endpoint TEXT NOT NULL UNIQUE,
+        tz_offset INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS lesson_reads (
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,

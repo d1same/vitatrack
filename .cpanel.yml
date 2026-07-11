@@ -3,7 +3,7 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home/dsamecom/health.mobasheri.us
     - /bin/mkdir -p $DEPLOYPATH/data
-    - /bin/cp index.php api.php manifest.json sw.js $DEPLOYPATH/
+    - /bin/cp index.php api.php cron.php manifest.json sw.js $DEPLOYPATH/
     - /bin/cp .htaccess $DEPLOYPATH/
     - /bin/cp -R assets icons includes $DEPLOYPATH/
     - /bin/cp data/.htaccess $DEPLOYPATH/data/

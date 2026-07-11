@@ -9,6 +9,7 @@ require __DIR__ . '/includes/auth.php';
 require __DIR__ . '/includes/calc.php';
 require __DIR__ . '/includes/ai.php';
 require __DIR__ . '/includes/off.php';
+require __DIR__ . '/includes/push.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -445,6 +446,43 @@ case 'has_api_key': {
     $st->execute([$uid]);
     $v = $st->fetch()['value'] ?? '';
     out(['ok' => true, 'has_key' => $v !== '']);
+}
+
+// ── Web Push (background notifications) ─────────────────────────────
+case 'vapid_key': {
+    require_user();
+    out(['ok' => true, 'key' => vapid_public_key()]);
+}
+
+case 'push_subscribe': {
+    $uid = require_user();
+    $ep = (string)($in['endpoint'] ?? '');
+    if (!preg_match('#^https://#', $ep) || strlen($ep) > 600) fail('Bad subscription endpoint');
+    db()->prepare("INSERT INTO push_subs (user_id, endpoint, tz_offset) VALUES (?,?,?)
+        ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, tz_offset=excluded.tz_offset")
+      ->execute([$uid, $ep, max(-840, min(840, (int)($in['tz_offset'] ?? 0)))]);
+    out(['ok' => true]);
+}
+
+case 'push_unsubscribe': {
+    $uid = require_user();
+    db()->prepare("DELETE FROM push_subs WHERE endpoint=? AND user_id=?")
+      ->execute([(string)($in['endpoint'] ?? ''), $uid]);
+    out(['ok' => true]);
+}
+
+// Called by the service worker when a push wakes it: returns what to show.
+case 'due_reminder': {
+    $uid = require_user();
+    $st = db()->prepare("SELECT value FROM settings WHERE user_id=? AND key='pending_push'");
+    $st->execute([$uid]);
+    $v = $st->fetch()['value'] ?? null;
+    if ($v) {
+        db()->prepare("DELETE FROM settings WHERE user_id=? AND key='pending_push'")->execute([$uid]);
+        $d = json_decode($v, true);
+        if (is_array($d) && !empty($d['title'])) out(['ok' => true, 'title' => $d['title'], 'body' => $d['body'] ?? '']);
+    }
+    out(['ok' => true, 'title' => 'VitaTrack', 'body' => 'Time for a healthy habit — log your day.']);
 }
 
 // ── AI photo scan ────────────────────────────────────────────────────
