@@ -190,6 +190,21 @@ case 'add_food': {
     out(['ok' => true, 'id' => (int)db()->lastInsertId()]);
 }
 
+case 'recent_foods': {
+    $uid = require_user();
+    // most recently logged distinct foods (values from the latest entry of each)
+    $st = db()->prepare("SELECT name, grams, kcal, protein, carbs, fat, fiber, sugar, sodium, satfat, MAX(id) mid
+        FROM diary WHERE user_id=? GROUP BY name ORDER BY mid DESC LIMIT 10");
+    $st->execute([$uid]);
+    $recent = $st->fetchAll();
+    // most frequently logged
+    $st = db()->prepare("SELECT name, grams, kcal, protein, carbs, fat, fiber, sugar, sodium, satfat, COUNT(*) c, MAX(id) mid
+        FROM diary WHERE user_id=? GROUP BY name HAVING c >= 2 ORDER BY c DESC LIMIT 10");
+    $st->execute([$uid]);
+    $frequent = $st->fetchAll();
+    out(['ok' => true, 'recent' => $recent, 'frequent' => $frequent]);
+}
+
 case 'barcode': {
     require_user();
     $code = preg_replace('/\D/', '', (string)($in['code'] ?? ''));

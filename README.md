@@ -11,7 +11,8 @@ runs on any cPanel shared host with zero configuration.
 - **Onboarding wizard** — age, sex, height, weight, body fat, activity, goal, health issues
 - **Personal plan** — BMR/TDEE (Mifflin-St Jeor), calorie target, keto/low-carb/balanced macros, water goal, projected goal date
 - **Food diary** — 150+ built-in foods, custom foods, per-meal logging, net-carb tracking with keto warnings
-- **▮▯ Barcode scanner (free, no key)** — live camera scan (Chrome/Android) or type the digits; nutrition comes from the free Open Food Facts database, and scanned items are remembered in "my foods"
+- **▮▯ Barcode scanner (free, no key, no AI)** — live camera scan on every phone (native detector on Chrome/Android, embedded ZXing decoder on iPhone Safari); nutrition comes from the free Open Food Facts database, and scanned items are remembered in "my foods"
+- **Recent & frequent foods** — your usual foods appear instantly when adding, with one-tap "log again" (same portion as last time)
 - **🌐 Online food search (free, no key)** — search millions of products on Open Food Facts right from the diary
 - **📷 AI photo scan** (optional) — snap a photo of a cooked meal, Claude vision estimates calories/protein/carbs/fat, one-tap log
 - **Intermittent fasting** — 16:8 / 18:6 / 20:4 / OMAD live timer with fasting-stage science and history

@@ -211,6 +211,7 @@ function openSheet(html) {
 function closeSheet() {
   document.querySelectorAll('.sheet-veil,.sheet').forEach(e => e.remove());
   if (S._camStream) { S._camStream.getTracks().forEach(t => t.stop()); S._camStream = null; }
+  if (S._zxing) { try { S._zxing.reset(); } catch (e) {} S._zxing = null; }
   clearInterval(S._bcTimer);
 }
 
@@ -735,10 +736,46 @@ function openAddSheet(meal, tab0) {
         }
       });
     };
+    // one-tap re-log rows for recent/frequent foods (logs the exact previous entry)
+    const quickRowHTML = f => `
+      <div class="food-row">
+        <div class="grow"><div class="n">${entryDot(f)} ${esc(f.name)}</div>
+          <div class="d">${round1(f.grams)}g · ${Math.round(f.kcal)} kcal — same as last time</div></div>
+        <button class="btn small" data-relog='${JSON.stringify({ name: f.name, grams: +f.grams, kcal: +f.kcal, protein: +f.protein, carbs: +f.carbs, fat: +f.fat, fiber: +f.fiber, sugar: +(f.sugar || 0), sodium: +(f.sodium || 0), satfat: +(f.satfat || 0) }).replace(/'/g, '&#39;')}'>${ic('plus', 16, 2.4)}</button>
+      </div>`;
+    const wireRelog = container => {
+      container.querySelectorAll('[data-relog]').forEach(btn => btn.onclick = async () => {
+        const f = JSON.parse(btn.dataset.relog.replace(/&#39;/g, "'"));
+        const r2 = await api('log_food', { ...f, date: todayStr(), meal: getMeal() });
+        if (r2.ok) {
+          toast(`${f.name} logged`);
+          btn.innerHTML = ic('check', 16, 2.4);
+          setTimeout(() => { btn.innerHTML = ic('plus', 16, 2.4); }, 900);
+        }
+      });
+    };
     if (tab === 'search') {
-      el.innerHTML = `<div class="field"><input id="fq" placeholder="Search foods… (e.g. chicken, avocado)" autocomplete="off"></div><div id="fRes"></div><div id="fOnlineWrap"></div>`;
+      el.innerHTML = `<div class="field"><input id="fq" placeholder="Search foods… (e.g. chicken, avocado)" autocomplete="off"></div><div id="fRecent"></div><div id="fRes"></div><div id="fOnlineWrap"></div>`;
+      // instant zero-typing list: your recent + frequent foods
+      api('recent_foods').then(rf => {
+        const box = el.querySelector('#fRecent');
+        if (!box || el.querySelector('#fq').value.trim()) return;
+        const seen = new Set();
+        const rows = [];
+        for (const f of [...(rf.recent || []).slice(0, 6), ...(rf.frequent || [])]) {
+          if (seen.has(f.name) || rows.length >= 8) continue;
+          seen.add(f.name); rows.push(f);
+        }
+        if (!rows.length) return;
+        box.innerHTML = `<div class="tiny" style="font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:2px 0 4px">Recent & frequent</div>`
+          + rows.map(quickRowHTML).join('')
+          + `<div class="tiny" style="font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 4px">All foods</div>`;
+        wireRelog(box);
+      });
       const doSearch = debounce(async () => {
         const q = el.querySelector('#fq').value.trim();
+        const rec = el.querySelector('#fRecent');
+        if (rec) rec.style.display = q ? 'none' : '';
         const r = await api('foods', { q });
         el.querySelector('#fRes').innerHTML = (r.foods || []).map(f => foodRowHTML(f)).join('')
           || `<div class="empty"><div class="em">${ic('search', 34)}</div>Nothing local matches</div>`;
@@ -786,28 +823,49 @@ function openAddSheet(meal, tab0) {
         if (c.length >= 6) lookup(c); else toast('Enter the digits under the barcode');
       };
       const startScan = async () => {
-        if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+        if (!navigator.mediaDevices?.getUserMedia) {
           el.querySelector('#bcHint')?.remove();
-          out.innerHTML = out.innerHTML || '<div class="tiny" style="padding:4px 2px">📱 Live camera scanning isn\'t supported in this browser (iPhone Safari doesn\'t allow it yet) — just type the digits printed under the barcode above. Lookup itself works everywhere.</div>';
+          out.innerHTML = out.innerHTML || '<div class="tiny" style="padding:4px 2px">No camera access in this browser — type the digits printed under the barcode above. Lookup itself works everywhere.</div>';
           return;
         }
+        const v = el.querySelector('#bcVideo');
+        if ('BarcodeDetector' in window) {
+          // Native detector (Chrome/Android) — fastest path
+          try {
+            const det = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code'] });
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            S._camStream = stream;
+            el.querySelector('#bcCam').hidden = false;
+            v.srcObject = stream; await v.play();
+            clearInterval(S._bcTimer);
+            S._bcTimer = setInterval(async () => {
+              if (!document.body.contains(v)) { closeSheet(); return; }
+              try {
+                const codes = await det.detect(v);
+                if (codes.length) lookup(codes[0].rawValue);
+              } catch (e) { /* frame not ready */ }
+            }, 350);
+          } catch (e) {
+            out.innerHTML = '<div class="tiny" style="padding:4px 2px">Camera unavailable (permission denied?) — type the barcode digits above instead.</div>';
+          }
+          return;
+        }
+        // ZXing fallback (iPhone Safari & others) — embedded decoder, no AI, no cloud
         try {
-          const det = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'] });
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          S._camStream = stream;
-          const v = el.querySelector('#bcVideo');
+          await loadScript('assets/vendor/zxing.min.js');
+          const reader = new ZXing.BrowserMultiFormatReader();
+          S._zxing = reader;
           el.querySelector('#bcCam').hidden = false;
-          v.srcObject = stream; await v.play();
-          clearInterval(S._bcTimer);
-          S._bcTimer = setInterval(async () => {
-            if (!document.body.contains(v)) { closeSheet(); return; }
-            try {
-              const codes = await det.detect(v);
-              if (codes.length) lookup(codes[0].rawValue);
-            } catch (e) { /* frame not ready */ }
-          }, 350);
+          await reader.decodeFromVideoDevice(undefined, v, result => {
+            if (result && document.body.contains(v)) {
+              try { reader.reset(); } catch (e) {}
+              S._zxing = null;
+              lookup(result.getText());
+            }
+          });
         } catch (e) {
-          out.innerHTML = '<div class="tiny" style="padding:4px 2px">📷 Camera unavailable (permission denied?) — type the barcode digits above instead.</div>';
+          el.querySelector('#bcHint')?.remove();
+          out.innerHTML = out.innerHTML || '<div class="tiny" style="padding:4px 2px">Camera scanning unavailable here — type the digits printed under the barcode above instead.</div>';
         }
       };
       startScan();
@@ -903,6 +961,16 @@ function openAddSheet(meal, tab0) {
 }
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+const _scripts = {};
+function loadScript(src) {
+  if (!_scripts[src]) _scripts[src] = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = () => { delete _scripts[src]; rej(new Error('load failed')); };
+    document.head.appendChild(s);
+  });
+  return _scripts[src];
+}
 
 function shrinkImage(file, maxDim) {
   return new Promise(res => {
