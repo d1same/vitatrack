@@ -1,8 +1,9 @@
 <?php
-// AI photo food analysis — supports Anthropic (Claude) and OpenAI keys.
+// AI photo food analysis — supports Anthropic, OpenAI, and Ollama Cloud keys.
 // The provider is auto-detected from the key prefix the user saves in Settings:
-//   sk-ant-…  → Claude (claude-haiku-4-5, ~$0.0025/scan)
-//   sk-…      → OpenAI (gpt-4o-mini, ~$0.004/scan)
+//   sk-ant-…      → Claude (claude-haiku-4-5, ~$0.0025/scan)
+//   sk-…          → OpenAI (gpt-4o-mini, ~$0.004/scan)
+//   anything else → Ollama Cloud (gemma4, free tier — key from ollama.com/settings/keys)
 
 const FOOD_PROMPT =
     "Analyze this food photo. Identify each food item and estimate its portion and nutrition. " .
@@ -23,8 +24,11 @@ function analyze_food_photo(string $apiKey, string $dataUrl): array {
 
     if (str_starts_with($apiKey, 'sk-ant-')) {
         $text = claude_vision($apiKey, $mediaType, $b64, $err);
+    } elseif (str_starts_with($apiKey, 'sk-')) {
+        $text = openai_compat_vision($apiKey, $dataUrl, 'https://api.openai.com/v1/chat/completions', 'gpt-4o-mini', true, $err);
     } else {
-        $text = openai_vision($apiKey, $dataUrl, $err);
+        // Ollama Cloud: OpenAI-compatible endpoint, free tier
+        $text = openai_compat_vision($apiKey, $dataUrl, 'https://ollama.com/v1/chat/completions', 'gemma4', false, $err);
     }
     if ($text === null) return ['ok' => false, 'error' => $err];
 
@@ -67,10 +71,12 @@ function http_post_json(string $url, array $headers, string $payload, ?string &$
     $curlErr = curl_error($ch);
     curl_close($ch);
 
-    if ($resp === false) { $err = 'Connection failed: ' . $curlErr; return null; }
+    $host = parse_url($url, PHP_URL_HOST);
+    if ($resp === false) { $err = "Could not reach $host: $curlErr"; return null; }
     $json = json_decode($resp, true);
     if ($code !== 200) {
-        $err = $json['error']['message'] ?? ('API error (HTTP ' . $code . ')');
+        $msg = $json['error']['message'] ?? (is_string($json['error'] ?? null) ? $json['error'] : null);
+        $err = $host . ': ' . ($msg ?: ($code === 401 ? 'invalid API key' : "error (HTTP $code)"));
         return null;
     }
     return $json;
@@ -103,24 +109,24 @@ function claude_vision(string $apiKey, string $mediaType, string $b64, ?string &
     return $text;
 }
 
-// OpenAI vision (Chat Completions) — returns the response text, or null with $err set.
-function openai_vision(string $apiKey, string $dataUrl, ?string &$err): ?string {
-    $payload = json_encode([
-        // gpt-4o-mini: cheapest vision-capable OpenAI model
-        'model' => 'gpt-4o-mini',
+// OpenAI-compatible vision (Chat Completions shape) — used for both OpenAI and
+// Ollama Cloud. Returns the response text, or null with $err set.
+function openai_compat_vision(string $apiKey, string $dataUrl, string $url, string $model, bool $jsonMode, ?string &$err): ?string {
+    $body = [
+        'model' => $model,
         'max_tokens' => 1024,
-        'response_format' => ['type' => 'json_object'],
         'messages' => [[
             'role' => 'user',
             'content' => [
                 ['type' => 'text', 'text' => FOOD_PROMPT],
-                ['type' => 'image_url', 'image_url' => ['url' => $dataUrl, 'detail' => 'auto']],
+                ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]],
             ],
         ]],
-    ]);
-    $json = http_post_json('https://api.openai.com/v1/chat/completions', [
+    ];
+    if ($jsonMode) $body['response_format'] = ['type' => 'json_object'];
+    $json = http_post_json($url, [
         'Authorization: Bearer ' . $apiKey,
-    ], $payload, $err);
+    ], json_encode($body), $err);
     if ($json === null) return null;
 
     return (string)($json['choices'][0]['message']['content'] ?? '');
