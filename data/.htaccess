@@ -1,0 +1,2 @@
+# Never serve the database over HTTP
+Require all denied

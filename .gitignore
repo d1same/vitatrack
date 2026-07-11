@@ -1,0 +1,7 @@
+# User data — never commit the database
+data/*
+!data/.htaccess
+
+# Local dev config
+.claude/
+*.log

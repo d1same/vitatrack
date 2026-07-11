@@ -1,0 +1,16 @@
+{
+  "name": "VitaTrack — Health Companion",
+  "short_name": "VitaTrack",
+  "description": "Calorie counting, keto diet, intermittent fasting, workouts and weight-loss tracking.",
+  "start_url": "./index.php",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#0e9f6e",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-180.php", "sizes": "180x180", "type": "image/png" },
+    { "src": "icons/icon-512.php", "sizes": "512x512", "type": "image/png" }
+  ]
+}
