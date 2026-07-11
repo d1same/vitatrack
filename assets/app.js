@@ -257,9 +257,30 @@ function renderAuth(mode = 'login') {
 const OB = { step: 0, data: {} };
 const ISSUES = [
   ['back', 'Back problems'], ['knee', 'Knee pain'], ['shoulder', 'Shoulder issues'],
-  ['heart', 'Heart condition'], ['diabetes', 'Diabetes / pre-diabetes'],
-  ['hypertension', 'High blood pressure'], ['none', 'None'],
+  ['heart', 'Heart condition'], ['cholesterol', 'High cholesterol'],
+  ['diabetes', 'Diabetes / pre-diabetes'], ['hypertension', 'High blood pressure'],
+  ['none', 'None'],
 ];
+
+// Daily nutrition limits, tightened for the user's health conditions
+function healthLimits(p) {
+  const issues = JSON.parse(p.health_issues || '[]');
+  const kcal = p.kcal_target || 1800;
+  const adj = [];
+  let sugar = 30, sodium = 2300, satfat = Math.max(15, Math.round(kcal * 0.10 / 9));
+  if (issues.includes('diabetes')) { sugar = 25; adj.push('diabetes'); }
+  if (issues.includes('hypertension')) { sodium = 1500; adj.push('blood pressure'); }
+  if (issues.includes('cholesterol') || issues.includes('heart')) {
+    satfat = Math.max(10, Math.round(kcal * 0.06 / 9));
+    adj.push(issues.includes('cholesterol') ? 'cholesterol' : 'heart health');
+  }
+  return { sugar, sodium, satfat, fiber: 30, adjusted: adj };
+}
+// Which recipe conditions apply to this user (for filtering)
+const userConditions = p => JSON.parse(p.health_issues || '[]')
+  .filter(i => ['heart', 'cholesterol', 'hypertension', 'diabetes'].includes(i));
+const recipeOkForCondition = (r, c) =>
+  c === 'hypertension' ? +r.lowsodium : c === 'diabetes' ? +r.diabetic : +r.heart;
 const ACTIVITIES = [
   [1.2, 'Sedentary', 'Desk job, little exercise'],
   [1.375, 'Lightly active', 'Light exercise 1-3 days/week'],
@@ -633,7 +654,14 @@ async function renderCoach(day, m) {
   const issues = JSON.parse(S.profile.health_issues || '[]');
   const hour = new Date().getHours();
   const mealTag = hour < 10 ? 'breakfast' : hour < 15 ? 'lunch' : hour < 20 ? 'dinner' : 'snack';
-  const pool = S.recipes.filter(r => r.tag === mealTag && (S.profile.diet !== 'keto' || +r.carbs <= 12));
+  // recipes matching the user's diet…
+  const diet = S.profile.diet;
+  let pool = S.recipes.filter(r => r.tag === mealTag &&
+    (diet === 'keto' ? r.diet === 'keto' : diet === 'lowcarb' ? r.diet !== 'balanced' : true));
+  // …and, when possible, safe for their health conditions
+  const conds = userConditions(S.profile);
+  const safe = pool.filter(r => conds.every(c => recipeOkForCondition(r, c)));
+  if (safe.length) pool = safe;
   const rec = pool[new Date().getDate() % Math.max(1, pool.length)];
   let exPool = S.exercises.filter(e => e.difficulty !== 'hard');
   if (issues.includes('back')) exPool = exPool.filter(e => +e.back_safe);
@@ -1017,11 +1045,11 @@ async function renderDiary() {
   const splitTot = split.g + split.y + split.o;
   const pct = c => splitTot ? Math.round(split[c] / splitTot * 100) : 0;
 
-  // Extended nutrition vs guideline limits
-  const satLimit = Math.max(15, Math.round((p.kcal_target || 1800) * 0.10 / 9));
+  // Extended nutrition vs guideline limits (tightened for the user's conditions)
+  const lim = healthLimits(p);
   const detail = [
-    ['Sugar', tot.sugar, 30, 'g'], ['Sodium', tot.sodium, 2300, 'mg'],
-    ['Saturated fat', tot.satfat, satLimit, 'g'], ['Fiber', tot.fiber, 30, 'g'],
+    ['Sugar', tot.sugar, lim.sugar, 'g'], ['Sodium', tot.sodium, lim.sodium, 'mg'],
+    ['Saturated fat', tot.satfat, lim.satfat, 'g'], ['Fiber', tot.fiber, lim.fiber, 'g'],
   ];
 
   shell(`<div class="screen">
@@ -1051,7 +1079,9 @@ async function renderDiary() {
         ${detail.map(([lbl, v, lim, u]) => `
           <div class="macro"><div class="row"><span>${lbl}</span><span class="val" style="${v > lim && lbl !== 'Fiber' ? 'color:var(--red);font-weight:700' : ''}">${Math.round(v)} / ${lim} ${u}</span></div>
           <div class="bar"><i data-w="${Math.min(100, v / lim * 100)}%" style="background:${lbl === 'Fiber' ? 'var(--accent)' : v > lim ? 'var(--red)' : 'var(--text3)'};width:0"></i></div></div>`).join('')}
-        <div class="tiny">General daily guidelines — sugar & sat-fat limits matter most; fiber is a “more is better” target.</div>
+        <div class="tiny">${lim.adjusted.length
+          ? 'Limits tightened for your health profile: ' + lim.adjusted.join(', ') + '. Fiber is a “more is better” target.'
+          : 'General daily guidelines — sugar & sat-fat limits matter most; fiber is a “more is better” target.'}</div>
       </div>
     </div>
 
@@ -1435,24 +1465,53 @@ function openBioSheet() {
 }
 
 // ══ RECIPES ═══════════════════════════════════════════════════════════
+const DIET_BADGE = { keto: ['Keto', 'green'], lowcarb: ['Low-carb', 'blue'], balanced: ['Balanced', 'orange'] };
+
+function recipeBadges(r, conds, all = false) {
+  const [lbl, cls] = DIET_BADGE[r.diet] || ['', 'green'];
+  let out = `<span class="badge ${cls}">${lbl}</span>`;
+  if (+r.heart) out += '<span class="badge green">Heart-smart</span>';
+  if (+r.lowsodium && (all || conds.includes('hypertension'))) out += '<span class="badge blue">Low salt</span>';
+  if (+r.diabetic && (all || conds.includes('diabetes'))) out += '<span class="badge purple">Low sugar</span>';
+  return out;
+}
+
 async function renderRecipes() {
   if (!S.recipes) S.recipes = (await api('recipes')).recipes || [];
+  const p = S.profile;
+  const conds = userConditions(p);
+  if (S._recipeDiet === undefined) S._recipeDiet = p.diet && DIET_BADGE[p.diet] ? p.diet : 'all';
+  if (S._recipeSafe === undefined) S._recipeSafe = conds.length > 0;
   const tag = S._recipeTag || 'all';
   const tags = ['all', 'breakfast', 'lunch', 'dinner', 'snack'];
-  const list = S.recipes.filter(r => tag === 'all' || r.tag === tag);
+  const dietOk = r => S._recipeDiet === 'all' || r.diet === S._recipeDiet
+    || (S._recipeDiet === 'lowcarb' && r.diet === 'keto'); // keto also qualifies as low-carb
+  const condOk = r => !S._recipeSafe || !conds.length || conds.every(c => recipeOkForCondition(r, c));
+  const list = S.recipes.filter(r => (tag === 'all' || r.tag === tag) && dietOk(r) && condOk(r));
+
   shell(`<div class="screen">
     <div class="screen-header"><div><div class="screen-title">Recipes</div>
-      <div class="screen-sub">Keto-friendly, macro-counted</div></div></div>
+      <div class="screen-sub">${S.recipes.length} recipes, macro-counted</div></div></div>
+    <div class="seg" style="margin-bottom:10px" id="dietSeg">
+      ${[['all', 'All'], ['keto', 'Keto'], ['lowcarb', 'Low-carb'], ['balanced', 'Balanced']].map(([v, l]) =>
+        `<button data-diet="${v}" class="${S._recipeDiet === v ? 'on' : ''}">${l}</button>`).join('')}
+    </div>
     <div class="chips" style="margin-bottom:14px">${tags.map(t =>
-      `<button class="chip ${t === tag ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+      `<button class="chip ${t === tag ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+      ${conds.length ? `<button class="chip ${S._recipeSafe ? 'on' : ''}" id="safeChip">${ic('heartpulse', 13)} Safe for me</button>` : ''}
+    </div>
     ${list.map(r => `<div class="list-item" data-r="${r.id}">
       <div class="em">${r.emoji}</div>
       <div class="grow"><h4>${esc(r.name)}</h4>
         <div class="meta">⏱ ${r.minutes} min · ${Math.round(r.kcal)} kcal · P${Math.round(r.protein)} C${Math.round(r.carbs)} F${Math.round(r.fat)}</div>
-        <span class="badge green">${+r.carbs <= 10 ? 'Keto ✓' : 'Low-carb'}</span><span class="badge blue">${r.tag}</span></div>
-      <span class="muted">›</span></div>`).join('')}
+        ${recipeBadges(r, conds)}</div>
+      <span class="muted">${ic('chevron', 15)}</span></div>`).join('')
+      || `<div class="empty"><div class="em">${ic('chefhat', 34)}</div>No recipes match these filters — try All or turn off a filter.</div>`}
   </div>`);
+  document.querySelectorAll('[data-diet]').forEach(b => b.onclick = () => { S._recipeDiet = b.dataset.diet; render(); });
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { S._recipeTag = b.dataset.t; render(); });
+  const sc = $('#safeChip');
+  if (sc) sc.onclick = () => { S._recipeSafe = !S._recipeSafe; render(); };
   document.querySelectorAll('[data-r]').forEach(b => b.onclick = () => openRecipe(+b.dataset.r));
 }
 window.openRecipe = async id => {
@@ -1461,6 +1520,7 @@ window.openRecipe = async id => {
   const sh = openSheet(`
     <div style="text-align:center;font-size:52px">${r.emoji}</div>
     <h3 style="text-align:center">${esc(r.name)}</h3>
+    <div style="text-align:center;margin-bottom:12px">${recipeBadges(r, [], true)}</div>
     <div class="grid3" style="margin-bottom:14px">
       <div class="stat-tile"><div class="v">${Math.round(r.kcal)}</div><div class="k">kcal</div></div>
       <div class="stat-tile"><div class="v">${Math.round(r.protein)}g</div><div class="k">protein</div></div>
@@ -1494,10 +1554,12 @@ async function renderWorkouts() {
   const cats = ['all', 'cardio', 'strength', 'core', 'mobility'];
   let list = S.exercises.filter(e => cat === 'all' || e.category === cat);
   if (S._safeOnly) list = list.filter(e => +e.back_safe);
+  const gentleHeart = issues.includes('heart') || issues.includes('hypertension');
+  if (gentleHeart) list = list.filter(e => e.difficulty !== 'hard');
 
   shell(`<div class="screen">
     <div class="screen-header"><div><div class="screen-title">Workouts</div>
-      <div class="screen-sub">${hasBack ? 'Filtered for your back' : 'Move more, feel better'}</div></div></div>
+      <div class="screen-sub">${hasBack ? 'Filtered for your back' : issues.includes('heart') || issues.includes('hypertension') ? 'Gentle intensities for your heart' : 'Move more, feel better'}</div></div></div>
     ${hasBack ? `<div class="fast-stage" style="margin-bottom:14px"><span class="em" style="color:var(--accent)">${ic('checkcircle', 22)}</span><span>You noted back problems, so back-safe filtering is <b>${S._safeOnly ? 'ON' : 'OFF'}</b>. <b style="color:var(--accent);cursor:pointer" id="toggleSafe">${S._safeOnly ? 'Show all' : 'Filter again'}</b></span></div>` : ''}
     <div class="chips" style="margin-bottom:14px">${cats.map(c =>
       `<button class="chip ${c === cat ? 'on' : ''}" data-c="${c}">${c[0].toUpperCase() + c.slice(1)}</button>`).join('')}</div>

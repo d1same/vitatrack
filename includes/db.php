@@ -121,7 +121,11 @@ function init_schema(PDO $pdo): void {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, tag TEXT, minutes INTEGER,
         kcal REAL, protein REAL, carbs REAL, fat REAL, fiber REAL,
-        ingredients TEXT, instructions TEXT, emoji TEXT
+        ingredients TEXT, instructions TEXT, emoji TEXT,
+        diet TEXT DEFAULT 'keto',
+        heart INTEGER DEFAULT 0,      -- heart/cholesterol-friendly (low sat fat)
+        lowsodium INTEGER DEFAULT 0,  -- blood-pressure-friendly
+        diabetic INTEGER DEFAULT 0    -- low sugar, moderate carbs
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS exercises (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,15 +165,17 @@ function init_schema(PDO $pdo): void {
         PRIMARY KEY(user_id, lesson_id)
     )");
 
-    // In-place upgrade of pre-v3 databases
+    // In-place upgrade of older databases
     $foodsUpgraded = ensure_cols($pdo, 'foods', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
     ensure_cols($pdo, 'diary', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
+    $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0']);
 
-    seed($pdo, $foodsUpgraded);
+    seed($pdo, $foodsUpgraded, $recipesUpgraded);
 }
 
-function seed(PDO $pdo, bool $reseedFoods = false): void {
+function seed(PDO $pdo, bool $reseedFoods = false, bool $reseedRecipes = false): void {
     if ($reseedFoods) $pdo->exec("DELETE FROM foods WHERE user_id IS NULL"); // diary stores copies, so this is safe
+    if ($reseedRecipes) $pdo->exec("DELETE FROM recipes"); // recipes are global content; logged meals are copies
 
     if ($pdo->query("SELECT COUNT(*) c FROM foods WHERE user_id IS NULL")->fetch()['c'] == 0) seed_foods($pdo);
     if ($pdo->query("SELECT COUNT(*) c FROM recipes")->fetch()['c'] == 0) seed_recipes($pdo);
@@ -254,31 +260,54 @@ function seed_foods(PDO $pdo): void {
 }
 
 function seed_recipes(PDO $pdo): void {
-    // Keto recipes — macros per serving
+    // Macros per serving. Trailing flags: diet ('keto'|'lowcarb'|'balanced'),
+    // heart (low sat-fat), lowsodium (BP-friendly), diabetic (low sugar).
     $recipes = [
-        ['Bacon & Eggs Skillet','breakfast',15,520,28,3,44,1,"3 eggs|3 strips bacon|1 tbsp butter|Salt, pepper, chives","Cook bacon in a skillet until crisp, set aside. Fry eggs in the bacon fat with butter. Season and top with chives and crumbled bacon.",'🍳'],
-        ['Keto Avocado Egg Boats','breakfast',20,410,15,9,36,7,"1 avocado|2 small eggs|30g shredded cheddar|Paprika, salt","Halve the avocado, remove pit, scoop a little extra out. Crack an egg into each half, top with cheese. Bake at 200°C/400°F for 15 min.",'🥑'],
-        ['Cream Cheese Pancakes','breakfast',15,340,15,5,29,1,"2 eggs|60g cream cheese|1 tsp erythritol|Cinnamon|Butter for frying","Blend eggs, cream cheese, sweetener and cinnamon until smooth. Fry small pancakes in butter 2 min per side. Serve with berries.",'🥞'],
-        ['Chia Coconut Pudding','breakfast',10,290,8,12,24,10,"3 tbsp chia seeds|200ml coconut milk|1 tsp erythritol|Vanilla|Few raspberries","Whisk everything together, refrigerate overnight. Stir, top with raspberries and shredded coconut.",'🥥'],
-        ['Grilled Chicken Caesar (no croutons)','lunch',20,480,42,6,32,2,"150g chicken breast|Romaine lettuce|2 tbsp Caesar dressing|20g parmesan|Olive oil","Season and grill the chicken 6-7 min per side. Slice over chopped romaine, toss with dressing and shaved parmesan.",'🥗'],
-        ['Tuna Avocado Salad','lunch',10,420,32,8,29,6,"1 can tuna|1/2 avocado|2 tbsp mayo|Celery, red onion|Lemon juice","Mix drained tuna with mayo, diced celery and onion. Fold in diced avocado, squeeze lemon, season. Serve in lettuce cups.",'🐟'],
-        ['Zucchini Noodle Alfredo','lunch',20,390,14,9,34,3,"2 zucchini (spiralized)|100ml heavy cream|30g parmesan|1 tbsp butter|Garlic","Sauté garlic in butter, add cream and simmer 3 min. Stir in parmesan. Toss zoodles in sauce 2 min — don't overcook.",'🍝'],
-        ['Bunless Cheeseburger Bowl','lunch',20,560,35,7,43,3,"150g ground beef|30g cheddar|Lettuce, tomato, pickles|2 tbsp mayo-mustard sauce","Brown seasoned beef, melt cheese on top. Serve over shredded lettuce with toppings and sauce.",'🍔'],
-        ['Egg Salad Lettuce Wraps','lunch',15,380,18,4,32,2,"3 boiled eggs|2 tbsp mayo|1 tsp mustard|Chives|Butter lettuce leaves","Chop eggs, mix with mayo, mustard, chives, salt and pepper. Spoon into lettuce leaves.",'🥬'],
-        ['Butter-Basted Ribeye & Asparagus','dinner',25,680,45,5,52,2,"200g ribeye|150g asparagus|2 tbsp butter|Garlic, rosemary","Sear ribeye 3-4 min per side, basting with butter, garlic and rosemary. Rest 5 min. Sauté asparagus in the pan juices.",'🥩'],
-        ['Garlic Butter Salmon','dinner',20,520,38,4,39,1,"180g salmon fillet|2 tbsp butter|Garlic, lemon, dill|150g broccoli","Pan-sear salmon skin-side down 4 min, flip 3 min. Add butter, garlic, lemon. Steam broccoli alongside.",'🐠'],
-        ['Chicken Thighs w/ Creamy Spinach','dinner',30,590,40,6,44,2,"2 chicken thighs|100g spinach|80ml heavy cream|30g parmesan|Garlic","Sear thighs skin-side down until crisp, finish in oven. Deglaze pan with cream, add garlic, spinach and parmesan for the sauce.",'🍗'],
-        ['Cauliflower Fried "Rice"','dinner',20,320,18,9,23,4,"200g riced cauliflower|1 egg|50g ham|Soy sauce|Sesame oil, scallions","Stir-fry cauliflower rice in sesame oil 4 min. Push aside, scramble egg. Add ham, soy sauce, scallions. Toss hot.",'🍚'],
-        ['Keto Meatballs in Marinara','dinner',35,540,36,8,40,2,"200g ground beef|1 egg|30g parmesan|Low-sugar marinara|Italian herbs","Mix beef, egg, parmesan, herbs. Roll and bake at 200°C for 18 min. Simmer in marinara 5 min. Serve over zoodles.",'🧆'],
-        ['Shrimp & Zucchini Scampi','dinner',20,380,30,7,26,2,"180g shrimp|2 tbsp butter|Garlic, chili flakes|1 zucchini, ribboned|Lemon","Sauté garlic in butter, add shrimp 2 min per side. Toss zucchini ribbons in, splash of lemon, chili flakes.",'🦐'],
-        ['Pork Chops w/ Mushroom Cream','dinner',30,610,42,5,46,1,"200g pork chop|100g mushrooms|80ml heavy cream|Thyme, garlic","Sear chops 4 min per side, rest. Sauté mushrooms and garlic, pour in cream, simmer with thyme. Spoon over chops.",'🍖'],
-        ['Cheese Crisp Nachos','snack',15,330,18,4,27,1,"60g shredded cheddar|Jalapeño slices|2 tbsp sour cream|Salsa","Bake small piles of cheddar at 200°C for 6-8 min until crisp. Cool, top with jalapeño, sour cream, salsa.",'🧀'],
-        ['Fat Bomb Bites','snack',10,190,2,2,20,1,"60g cream cheese|30g butter|1 tbsp cocoa|Erythritol|Chopped pecans","Soften cream cheese and butter, mix with cocoa and sweetener. Roll into balls, coat in pecans, freeze 30 min.",'🍫'],
-        ['Deviled Eggs','snack',15,210,12,1,17,0,"3 boiled eggs|2 tbsp mayo|1 tsp mustard|Paprika","Halve eggs, mash yolks with mayo and mustard, pipe back in. Dust with paprika.",'🥚'],
-        ['Keto Berry Smoothie','snack',5,240,12,8,18,4,"50g raspberries|150ml almond milk|1 tbsp almond butter|1/2 scoop whey|Ice","Blend everything until smooth. Add ice for thickness.",'🫐'],
-        ['Guacamole & Veggie Sticks','snack',10,220,3,10,19,8,"1 avocado|Lime, cilantro, onion|Celery & cucumber sticks","Mash avocado with lime, minced onion, cilantro, salt. Dip the veggie sticks.",'🥒'],
+        // ── Keto ──
+        ['Bacon & Eggs Skillet','breakfast',15,520,28,3,44,1,"3 eggs|3 strips bacon|1 tbsp butter|Salt, pepper, chives","Cook bacon in a skillet until crisp, set aside. Fry eggs in the bacon fat with butter. Season and top with chives and crumbled bacon.",'🍳','keto',0,0,1],
+        ['Keto Avocado Egg Boats','breakfast',20,410,15,9,36,7,"1 avocado|2 small eggs|30g shredded cheddar|Paprika, salt","Halve the avocado, remove pit, scoop a little extra out. Crack an egg into each half, top with cheese. Bake at 200°C/400°F for 15 min.",'🥑','keto',0,1,1],
+        ['Cream Cheese Pancakes','breakfast',15,340,15,5,29,1,"2 eggs|60g cream cheese|1 tsp erythritol|Cinnamon|Butter for frying","Blend eggs, cream cheese, sweetener and cinnamon until smooth. Fry small pancakes in butter 2 min per side. Serve with berries.",'🥞','keto',0,1,1],
+        ['Chia Coconut Pudding','breakfast',10,290,8,12,24,10,"3 tbsp chia seeds|200ml coconut milk|1 tsp erythritol|Vanilla|Few raspberries","Whisk everything together, refrigerate overnight. Stir, top with raspberries and shredded coconut.",'🥥','keto',0,1,1],
+        ['Grilled Chicken Caesar (no croutons)','lunch',20,480,42,6,32,2,"150g chicken breast|Romaine lettuce|2 tbsp Caesar dressing|20g parmesan|Olive oil","Season and grill the chicken 6-7 min per side. Slice over chopped romaine, toss with dressing and shaved parmesan.",'🥗','keto',0,0,1],
+        ['Tuna Avocado Salad','lunch',10,420,32,8,29,6,"1 can tuna|1/2 avocado|2 tbsp mayo|Celery, red onion|Lemon juice","Mix drained tuna with mayo, diced celery and onion. Fold in diced avocado, squeeze lemon, season. Serve in lettuce cups.",'🐟','keto',1,1,1],
+        ['Zucchini Noodle Alfredo','lunch',20,390,14,9,34,3,"2 zucchini (spiralized)|100ml heavy cream|30g parmesan|1 tbsp butter|Garlic","Sauté garlic in butter, add cream and simmer 3 min. Stir in parmesan. Toss zoodles in sauce 2 min — don't overcook.",'🍝','keto',0,0,1],
+        ['Bunless Cheeseburger Bowl','lunch',20,560,35,7,43,3,"150g ground beef|30g cheddar|Lettuce, tomato, pickles|2 tbsp mayo-mustard sauce","Brown seasoned beef, melt cheese on top. Serve over shredded lettuce with toppings and sauce.",'🍔','keto',0,0,1],
+        ['Egg Salad Lettuce Wraps','lunch',15,380,18,4,32,2,"3 boiled eggs|2 tbsp mayo|1 tsp mustard|Chives|Butter lettuce leaves","Chop eggs, mix with mayo, mustard, chives, salt and pepper. Spoon into lettuce leaves.",'🥬','keto',0,1,1],
+        ['Butter-Basted Ribeye & Asparagus','dinner',25,680,45,5,52,2,"200g ribeye|150g asparagus|2 tbsp butter|Garlic, rosemary","Sear ribeye 3-4 min per side, basting with butter, garlic and rosemary. Rest 5 min. Sauté asparagus in the pan juices.",'🥩','keto',0,1,1],
+        ['Garlic Butter Salmon','dinner',20,520,38,4,39,1,"180g salmon fillet|2 tbsp butter|Garlic, lemon, dill|150g broccoli","Pan-sear salmon skin-side down 4 min, flip 3 min. Add butter, garlic, lemon. Steam broccoli alongside.",'🐠','keto',0,1,1],
+        ['Chicken Thighs w/ Creamy Spinach','dinner',30,590,40,6,44,2,"2 chicken thighs|100g spinach|80ml heavy cream|30g parmesan|Garlic","Sear thighs skin-side down until crisp, finish in oven. Deglaze pan with cream, add garlic, spinach and parmesan for the sauce.",'🍗','keto',0,1,1],
+        ['Cauliflower Fried "Rice"','dinner',20,320,18,9,23,4,"200g riced cauliflower|1 egg|50g ham|Soy sauce|Sesame oil, scallions","Stir-fry cauliflower rice in sesame oil 4 min. Push aside, scramble egg. Add ham, soy sauce, scallions. Toss hot.",'🍚','keto',1,0,1],
+        ['Keto Meatballs in Marinara','dinner',35,540,36,8,40,2,"200g ground beef|1 egg|30g parmesan|Low-sugar marinara|Italian herbs","Mix beef, egg, parmesan, herbs. Roll and bake at 200°C for 18 min. Simmer in marinara 5 min. Serve over zoodles.",'🧆','keto',0,0,1],
+        ['Shrimp & Zucchini Scampi','dinner',20,380,30,7,26,2,"180g shrimp|2 tbsp butter|Garlic, chili flakes|1 zucchini, ribboned|Lemon","Sauté garlic in butter, add shrimp 2 min per side. Toss zucchini ribbons in, splash of lemon, chili flakes.",'🦐','keto',0,0,1],
+        ['Pork Chops w/ Mushroom Cream','dinner',30,610,42,5,46,1,"200g pork chop|100g mushrooms|80ml heavy cream|Thyme, garlic","Sear chops 4 min per side, rest. Sauté mushrooms and garlic, pour in cream, simmer with thyme. Spoon over chops.",'🍖','keto',0,1,1],
+        ['Cheese Crisp Nachos','snack',15,330,18,4,27,1,"60g shredded cheddar|Jalapeño slices|2 tbsp sour cream|Salsa","Bake small piles of cheddar at 200°C for 6-8 min until crisp. Cool, top with jalapeño, sour cream, salsa.",'🧀','keto',0,0,1],
+        ['Fat Bomb Bites','snack',10,190,2,2,20,1,"60g cream cheese|30g butter|1 tbsp cocoa|Erythritol|Chopped pecans","Soften cream cheese and butter, mix with cocoa and sweetener. Roll into balls, coat in pecans, freeze 30 min.",'🍫','keto',0,1,1],
+        ['Deviled Eggs','snack',15,210,12,1,17,0,"3 boiled eggs|2 tbsp mayo|1 tsp mustard|Paprika","Halve eggs, mash yolks with mayo and mustard, pipe back in. Dust with paprika.",'🥚','keto',0,1,1],
+        ['Keto Berry Smoothie','snack',5,240,12,8,18,4,"50g raspberries|150ml almond milk|1 tbsp almond butter|1/2 scoop whey|Ice","Blend everything until smooth. Add ice for thickness.",'🫐','keto',1,1,1],
+        ['Guacamole & Veggie Sticks','snack',10,220,3,10,19,8,"1 avocado|Lime, cilantro, onion|Celery & cucumber sticks","Mash avocado with lime, minced onion, cilantro, salt. Dip the veggie sticks.",'🥒','keto',1,1,1],
+
+        // ── Balanced / Mediterranean (heart-smart, everyday) ──
+        ['Overnight Oats with Berries','breakfast',5,350,20,45,10,8,"50g rolled oats|150g Greek yogurt|1 tbsp chia seeds|80g mixed berries|Cinnamon","Mix oats, yogurt, chia and a splash of milk in a jar. Refrigerate overnight. Top with berries and cinnamon in the morning.",'🥣','balanced',1,1,1],
+        ['Veggie Egg-White Omelet','breakfast',10,250,24,8,12,2,"4 egg whites + 1 whole egg|Spinach, tomato, mushrooms|30g feta|1 tsp olive oil","Sauté the vegetables 2 min, pour in the eggs, cook until just set. Crumble feta over and fold.",'🍳','balanced',1,1,1],
+        ['Avocado Toast with Egg','breakfast',10,380,16,34,20,8,"1 slice whole-grain bread|1/2 avocado|1 poached egg|Chili flakes, lemon","Toast the bread, mash avocado with lemon and spread. Top with a poached egg and chili flakes.",'🥑','balanced',1,1,1],
+        ['Apple Cinnamon Yogurt Bowl','breakfast',5,300,18,38,8,5,"200g Greek yogurt|1 apple, diced|1 tbsp walnuts|Cinnamon","Stir cinnamon into the yogurt, top with diced apple and walnuts.",'🍎','balanced',1,1,0],
+        ['Grilled Chicken Quinoa Bowl','lunch',25,480,38,42,16,7,"120g chicken breast|80g cooked quinoa|Cucumber, tomato, red onion|1 tbsp olive oil, lemon","Grill the chicken and slice. Toss quinoa with chopped vegetables, olive oil and lemon. Top with chicken.",'🥙','balanced',1,1,1],
+        ['Mediterranean Chickpea Salad','lunch',15,400,15,45,18,11,"150g chickpeas|Cucumber, tomato, red onion|40g feta|Olives|1 tbsp olive oil, oregano","Combine everything in a bowl, dress with olive oil, lemon and oregano. Better after 10 minutes of resting.",'🥗','balanced',1,0,1],
+        ['Lentil Soup','lunch',35,320,18,45,6,12,"150g red lentils|Carrot, celery, onion|1 tsp cumin|Low-sodium vegetable broth|1 tsp olive oil","Sauté the vegetables, add lentils, cumin and broth. Simmer 25 min until soft. Season with lemon.",'🍲','balanced',1,1,1],
+        ['Turkey & Hummus Wrap','lunch',10,420,30,38,16,7,"1 whole-wheat tortilla|80g turkey breast|2 tbsp hummus|Spinach, cucumber, bell pepper","Spread hummus on the tortilla, layer turkey and vegetables, roll tightly and halve.",'🌯','balanced',1,0,1],
+        ['Baked Cod with Roasted Vegetables','dinner',30,380,34,28,14,7,"180g cod fillet|Zucchini, bell pepper, cherry tomatoes|1 tbsp olive oil|Lemon, herbs","Toss vegetables in oil, roast 15 min at 200°C. Add the cod on top, season, roast 12 min more. Finish with lemon.",'🐟','balanced',1,1,1],
+        ['Salmon with Quinoa & Greens','dinner',25,520,36,35,24,6,"160g salmon|80g cooked quinoa|Steamed broccoli or green beans|1 tsp olive oil, lemon","Bake or pan-sear the salmon (no butter needed). Serve over quinoa with greens and a squeeze of lemon.",'🍣','balanced',1,1,1],
+        ['Chicken & Veggie Stir-Fry','dinner',20,480,35,52,12,6,"140g chicken breast|Broccoli, carrot, snap peas|Low-sodium soy sauce, ginger, garlic|80g brown rice","Stir-fry chicken until golden, add vegetables and sauce, cook 4 min. Serve over brown rice.",'🥦','balanced',1,0,1],
+        ['Turkey Chili','dinner',40,420,35,35,12,10,"200g lean ground turkey|Kidney beans, tomatoes|Onion, garlic, chili powder, cumin","Brown the turkey with onion and garlic. Add beans, tomatoes and spices; simmer 25 min. Even better next day.",'🌶️','balanced',1,1,1],
+        ['Stuffed Bell Peppers','dinner',45,400,28,38,14,8,"2 bell peppers|150g lean ground beef or turkey|60g cooked rice|Tomato, onion|30g mozzarella","Mix meat, rice, tomato and onion; stuff the peppers. Bake covered 30 min at 190°C, top with cheese, bake 10 more.",'🫑','balanced',1,1,1],
+        ['Cottage Cheese & Fruit Bowl','snack',5,250,24,22,7,3,"200g cottage cheese|100g strawberries or peach|1 tsp honey|Few almonds","Top the cottage cheese with fruit, a small drizzle of honey and almonds.",'🍓','balanced',1,1,0],
+        ['Crispy Roasted Chickpeas','snack',35,220,8,30,8,8,"150g chickpeas|1 tsp olive oil|Paprika, garlic powder, salt","Pat chickpeas dry, toss with oil and spices, roast 30 min at 200°C shaking once. Cool to crisp up.",'🫘','balanced',1,1,1],
+
+        // ── Low-carb (not strict keto) ──
+        ['Asian Chicken Lettuce Wraps','lunch',20,350,30,18,16,4,"150g ground chicken|Water chestnuts, scallions|Low-sodium soy, ginger, garlic|Butter lettuce cups","Brown the chicken with ginger and garlic, add chopped water chestnuts and sauce. Spoon into lettuce cups.",'🥬','lowcarb',1,0,1],
+        ['Greek Chicken Bowl','dinner',25,420,38,15,22,5,"150g chicken thigh|Cucumber, tomato, red onion|40g feta|Tzatziki|Olive oil, oregano","Grill oregano-marinated chicken. Serve over chopped salad with feta and a spoon of tzatziki — no rice needed.",'🇬🇷','lowcarb',1,0,1],
     ];
-    $st = $pdo->prepare("INSERT INTO recipes (name,tag,minutes,kcal,protein,carbs,fat,fiber,ingredients,instructions,emoji) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+    $st = $pdo->prepare("INSERT INTO recipes (name,tag,minutes,kcal,protein,carbs,fat,fiber,ingredients,instructions,emoji,diet,heart,lowsodium,diabetic) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     foreach ($recipes as $r) $st->execute($r);
 }
 
