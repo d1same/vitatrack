@@ -81,6 +81,7 @@ case 'change_password': {
     if (strlen((string)($in['new'] ?? '')) < 6) fail('New password must be at least 6 characters');
     db()->prepare("UPDATE users SET pass_hash=? WHERE id=?")
       ->execute([password_hash((string)$in['new'], PASSWORD_DEFAULT), $uid]);
+    revoke_remember_tokens($uid, true); // sign out other devices, keep this one
     out(['ok' => true]);
 }
 
@@ -123,6 +124,7 @@ case 'reset_password': {
     if (!$u) fail('Invalid or expired reset link — request a new one');
     db()->prepare("UPDATE users SET pass_hash=?, reset_token=NULL, reset_expires=NULL WHERE id=?")
       ->execute([password_hash($pass, PASSWORD_DEFAULT), $u['id']]);
+    revoke_remember_tokens((int)$u['id']); // a reset signs out every device
     out(['ok' => true]);
 }
 
