@@ -1561,8 +1561,8 @@ async function renderSettings() {
 
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--orange-soft);color:var(--orange)">${ic('sparkle', 16)}</span>AI photo scan</div>
-      <div class="muted" style="margin-bottom:10px">Powers the food photo analysis. Get a key at <b>console.anthropic.com</b> — it stays on your server, and each scan costs well under a cent. ${keyInfo.has_key ? '<b style="color:var(--accent)">✓ Key saved</b>' : '<b style="color:var(--orange)">No key yet</b>'}</div>
-      <div class="field"><input id="sKey" type="password" placeholder="${keyInfo.has_key ? '•••••••• (enter new key to replace)' : 'sk-ant-…'}"></div>
+      <div class="muted" style="margin-bottom:10px">Powers the food photo analysis. Works with an <b>Anthropic</b> key (console.anthropic.com) or an <b>OpenAI</b> key (platform.openai.com) — auto-detected. The key stays on your server; each scan costs well under a cent. ${keyInfo.has_key ? '<b style="color:var(--accent)">Key saved</b>' : '<b style="color:var(--orange)">No key yet</b>'}</div>
+      <div class="field"><input id="sKey" type="password" placeholder="${keyInfo.has_key ? '•••••••• (enter new key to replace)' : 'sk-ant-… or sk-…'}"></div>
       <button class="btn small secondary" id="sKeySave">Save key</button>
     </div>
 

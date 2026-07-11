@@ -453,7 +453,7 @@ case 'analyze_photo': {
     $st = db()->prepare("SELECT value FROM settings WHERE user_id=? AND key='anthropic_key'");
     $st->execute([$uid]);
     $key = trim((string)($st->fetch()['value'] ?? ''));
-    if ($key === '') fail('Add your Anthropic API key in Settings first (Settings → AI Photo Scan)');
+    if ($key === '') fail('Add an API key in Settings first (Settings → AI Photo Scan) — Anthropic or OpenAI keys both work');
     $result = analyze_food_photo($key, (string)($in['image'] ?? ''));
     out($result['ok'] ? ['ok' => true, 'items' => $result['items'], 'notes' => $result['notes']] : ['ok' => false, 'error' => $result['error']]);
 }
