@@ -2,6 +2,13 @@
 // Database layer — SQLite via PDO. Creates schema + seed data on first run,
 // and upgrades older databases in place (ensure_cols).
 
+// Polyfill for hosts still on PHP 7.x (str_starts_with is PHP 8.0+)
+if (!function_exists('str_starts_with')) {
+    function str_starts_with(string $haystack, string $needle): bool {
+        return $needle === '' || strncmp($haystack, $needle, strlen($needle)) === 0;
+    }
+}
+
 function db(): PDO {
     static $pdo = null;
     if ($pdo !== null) return $pdo;
