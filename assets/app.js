@@ -1555,7 +1555,9 @@ async function renderRecipes() {
     || (S._recipeDiet === 'lowcarb' && r.diet === 'keto'); // keto also qualifies as low-carb
   const condOk = r => !S._recipeSafe || !conds.length || conds.every(c => recipeOkForCondition(r, c));
   const isFav = r => S.recipeFavs.has(r.name);
+  const cuisines = [...new Set(S.recipes.map(r => r.cuisine).filter(Boolean))];
   let list = S.recipes.filter(r => (tag === 'all' || r.tag === tag) && dietOk(r) && condOk(r));
+  if (S._recipeCuisine) list = list.filter(r => r.cuisine === S._recipeCuisine);
   if (S._recipeFavOnly) list = list.filter(isFav);
   list = [...list.filter(isFav), ...list.filter(r => !isFav(r))]; // favorites first
 
@@ -1570,6 +1572,7 @@ async function renderRecipes() {
       `<button class="chip ${t === tag ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
       ${conds.length ? `<button class="chip ${S._recipeSafe ? 'on' : ''}" id="safeChip">${ic('heartpulse', 13)} Safe for me</button>` : ''}
       <button class="chip ${S._recipeFavOnly ? 'on' : ''}" id="favChip">${ic('heart', 13)} Favorites${S.recipeFavs.size ? ' (' + S.recipeFavs.size + ')' : ''}</button>
+      ${cuisines.map(c => `<button class="chip ${S._recipeCuisine === c ? 'on' : ''}" data-cuisine="${c}">${c[0].toUpperCase() + c.slice(1)}</button>`).join('')}
     </div>
     ${list.map(r => `<div class="list-item" data-r="${r.id}">
       <div class="em">${r.emoji}</div>
@@ -1585,6 +1588,9 @@ async function renderRecipes() {
   const sc = $('#safeChip');
   if (sc) sc.onclick = () => { S._recipeSafe = !S._recipeSafe; render(); };
   $('#favChip').onclick = () => { S._recipeFavOnly = !S._recipeFavOnly; render(); };
+  document.querySelectorAll('[data-cuisine]').forEach(b => b.onclick = () => {
+    S._recipeCuisine = S._recipeCuisine === b.dataset.cuisine ? '' : b.dataset.cuisine; render();
+  });
   document.querySelectorAll('[data-fav]').forEach(b => b.onclick = async e => {
     e.stopPropagation();
     const on = await toggleFavRecipe(b.dataset.fav);

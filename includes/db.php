@@ -125,7 +125,8 @@ function init_schema(PDO $pdo): void {
         diet TEXT DEFAULT 'keto',
         heart INTEGER DEFAULT 0,      -- heart/cholesterol-friendly (low sat fat)
         lowsodium INTEGER DEFAULT 0,  -- blood-pressure-friendly
-        diabetic INTEGER DEFAULT 0    -- low sugar, moderate carbs
+        diabetic INTEGER DEFAULT 0,   -- low sugar, moderate carbs
+        cuisine TEXT DEFAULT ''
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS exercises (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,7 +181,8 @@ function init_schema(PDO $pdo): void {
     // In-place upgrade of older databases
     $foodsUpgraded = ensure_cols($pdo, 'foods', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
     ensure_cols($pdo, 'diary', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
-    $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0']);
+    $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0', 'cuisine' => "TEXT DEFAULT ''"]);
+    $foodsUpgraded = $foodsUpgraded || $pdo->query("SELECT COUNT(*) c FROM foods WHERE user_id IS NULL AND name LIKE 'Ghormeh%'")->fetch()['c'] == 0;
     ensure_cols($pdo, 'users', ['reset_token' => 'TEXT', 'reset_expires' => 'INTEGER', 'reset_requested' => 'INTEGER']);
 
     seed($pdo, $foodsUpgraded, $recipesUpgraded);
@@ -267,6 +269,23 @@ function seed_foods(PDO $pdo): void {
         ['Beef jerky',410,33,11,26,1.8,1,9,1785,11],['Sardines (canned in oil)',208,25,0,11,0,1,0,505,1.5],
         ['Crab (cooked)',97,19,0,1.5,0,1,0,395,0.2],['Lobster (cooked)',89,19,0,0.9,0,1,0,486,0.2],
         ['Scallops (cooked)',111,21,3.2,0.8,0,1,0,667,0.2],['Duck (roasted)',337,19,0,28,0,1,0,59,9.7],
+        // ── Persian dishes & staples (per 100g, typical homemade) ──
+        ['Ghormeh Sabzi (herb stew)',120,8,6,7,2,1,1,350,2],['Khoresh Gheymeh',130,8,9,7,2,0,2,380,2.5],
+        ['Fesenjan (walnut-pomegranate stew)',210,9,12,14,2,0,8,300,2],['Khoresh Bademjan (eggplant stew)',110,6,8,6,2.5,1,2,340,2],
+        ['Kabab Koobideh',230,17,2,17,0.3,1,0.5,420,7],['Joojeh Kabab (saffron chicken)',165,25,1,7,0,1,0.5,350,1.8],
+        ['Kabab Barg',190,26,0.5,9,0,1,0,330,3.5],['Chelo (Persian steamed rice)',160,2.5,32,2.5,0.5,0,0.1,120,0.5],
+        ['Tahdig (crispy rice)',250,4,45,6,0.8,0,0.2,200,1],['Zereshk Polo (barberry rice w/ chicken)',180,10,25,5,1,0,4,300,1.2],
+        ['Baghali Polo (dill & fava rice)',170,5,30,3.5,2,0,0.5,250,0.7],['Adas Polo (lentil rice)',180,6,33,3,3,0,4,220,0.5],
+        ['Tahchin (saffron rice cake)',220,10,28,8,0.7,0,1,320,2.5],['Kashk-e Bademjan',150,5,10,10,3,1,3,450,3],
+        ['Mirza Ghasemi',120,4,9,8,2.5,1,3,300,1.5],['Ash Reshteh (noodle-bean soup)',130,6,18,4,4,0,2,480,1],
+        ['Abgoosht / Dizi',140,11,10,6,2,0,1,400,2.5],['Kotlet (Persian patty)',220,12,12,14,1,0,1,380,3.5],
+        ['Kuku Sabzi (herb frittata)',155,8,6,11,2.5,1,1,320,2.5],['Dolmeh (stuffed grape leaves)',160,4,22,6,2,0,2,400,1],
+        ['Salad Shirazi',35,1,6,1,1.5,1,3,200,0.1],['Mast-o-Khiar (yogurt cucumber)',60,3.5,5,3,0.5,1,3.5,180,1.8],
+        ['Doogh (yogurt drink)',30,1.7,2.5,1.3,0,1,2.2,250,0.8],['Lavash bread',275,9,56,1,2,0,1.5,480,0.2],
+        ['Sangak bread',260,9,52,1.5,3.5,0,1,420,0.3],['Barbari bread',280,9,55,2.5,2.5,0,1.2,450,0.4],
+        ['Halim (wheat & turkey porridge)',130,8,18,3,2,0,3,250,1],['Sholeh Zard (saffron rice pudding)',150,2,33,1,0.3,0,18,20,0.3],
+        ['Dates (khorma)',277,1.8,75,0.2,6.7,0,66,1,0],['Dried barberries (zereshk)',316,3.6,64,3.5,7,0,32,5,0.1],
+        ['Pomegranate',83,1.7,19,1.2,4,0,14,3,0.1],
     ];
     $st = $pdo->prepare("INSERT INTO foods (user_id,name,kcal,protein,carbs,fat,fiber,keto,sugar,sodium,satfat) VALUES (NULL,?,?,?,?,?,?,?,?,?,?)");
     foreach ($foods as $f) $st->execute($f);
@@ -319,9 +338,21 @@ function seed_recipes(PDO $pdo): void {
         // ── Low-carb (not strict keto) ──
         ['Asian Chicken Lettuce Wraps','lunch',20,350,30,18,16,4,"150g ground chicken|Water chestnuts, scallions|Low-sodium soy, ginger, garlic|Butter lettuce cups","Brown the chicken with ginger and garlic, add chopped water chestnuts and sauce. Spoon into lettuce cups.",'🥬','lowcarb',1,0,1],
         ['Greek Chicken Bowl','dinner',25,420,38,15,22,5,"150g chicken thigh|Cucumber, tomato, red onion|40g feta|Tzatziki|Olive oil, oregano","Grill oregano-marinated chicken. Serve over chopped salad with feta and a spoon of tzatziki — no rice needed.",'🇬🇷','lowcarb',1,0,1],
+
+        // ── Persian ──
+        ['Joojeh Kabab with Grilled Tomato','dinner',35,420,45,8,22,2,"400g chicken thigh or breast, cubed|Saffron bloomed in hot water|1/2 grated onion, lemon juice|2 tomatoes for grilling|Olive oil","Marinate chicken in saffron, onion, lemon and oil for 2+ hours. Skewer and grill 12-15 min, turning; grill tomatoes alongside. Serve with salad shirazi instead of rice to keep it light.",'🍢','lowcarb',1,1,1,'persian'],
+        ['Kabab Koobideh & Salad Shirazi','dinner',40,520,35,10,38,3,"300g ground lamb/beef (20% fat)|1 grated onion, squeezed dry|Salt, pepper, sumac|Cucumber, tomato, onion salad with lime","Knead meat with onion and seasoning until sticky. Press onto skewers and grill over high heat 8-10 min. Serve with salad shirazi and sumac — skip the rice for low-carb.",'🥩','keto',0,0,1,'persian'],
+        ['Ghormeh Sabzi (lighter) with Rice','dinner',75,480,28,38,22,6,"250g lean beef or lamb, cubed|Sabzi ghormeh herbs (parsley, cilantro, fenugreek, leek)|Kidney beans|Dried limes (limoo amani)|1 tbsp olive oil|1/2 cup cooked basmati per serving","Sauté herbs in olive oil until dark and fragrant. Brown the meat, add beans, dried limes and water; simmer 1+ hour until rich. Serve over a modest portion of rice.",'🍲','balanced',1,0,1,'persian'],
+        ['Khoresh Gheymeh (lighter)','dinner',60,450,26,40,18,5,"250g lean beef, cubed|Yellow split peas|Tomato paste, dried limes|Baked potato wedges instead of fries|1/2 cup rice per serving","Brown meat with onion and turmeric. Add split peas, tomato paste, dried limes and water; simmer 45 min. Top with oven-baked potato wedges instead of deep-fried.",'🍛','balanced',1,0,1,'persian'],
+        ['Kuku Sabzi (herb frittata)','lunch',30,310,16,10,23,4,"4 eggs|Big bunch parsley, cilantro, dill, chives — finely chopped|1 tbsp dried barberries + walnuts (optional)|1 tbsp olive oil","Mix eggs with the mountain of herbs, barberries and walnuts. Cook gently in olive oil, covered, until set; flip or finish under the broiler. Cut into wedges.",'🥬','lowcarb',1,1,1,'persian'],
+        ['Mirza Ghasemi with Lavash','lunch',25,320,10,28,18,5,"2 smoked/roasted eggplants, mashed|3 garlic cloves|2 tomatoes, grated|1 egg|Olive oil|Half a lavash","Fry garlic in olive oil, add mashed eggplant and tomato; cook down 10 min. Stir in the egg until just set. Scoop with warm lavash.",'🍆','balanced',1,1,1,'persian'],
+        ['Ash Reshteh (lighter)','lunch',55,380,16,55,10,10,"Chickpeas, kidney beans, lentils|Persian noodles (reshteh)|Spinach, parsley, cilantro|Fried mint & a little kashk on top","Simmer beans until tender, add herbs and noodles for the last 15 min. Finish with fried mint oil and a light drizzle of kashk (it's salty — a little goes far).",'🍜','balanced',1,0,1,'persian'],
+        ['Zereshk Polo ba Morgh','dinner',55,520,35,55,14,3,"2 chicken pieces, braised with onion, turmeric & saffron|1 cup basmati|Barberries (zereshk) sautéed with a touch of honey|Pistachio slivers","Braise chicken until tender. Steam the rice; fold in the tart sautéed barberries. Serve chicken over the jeweled rice.",'🍚','balanced',1,1,0,'persian'],
+        ['Salad Shirazi','snack',10,90,2,12,4,3,"Cucumber, tomato, red onion — finely diced|Lime juice, dried mint|1 tsp olive oil","Dice everything small and even. Dress with lime, mint and olive oil just before serving.",'🥗','balanced',1,1,1,'persian'],
+        ['Mast-o-Khiar','snack',5,120,7,9,6,1,"200g Greek yogurt|1 cucumber, grated or diced|Dried mint, a few walnuts & raisins (optional)","Stir cucumber and mint into the yogurt. Top with walnuts. Cooling side for any kabab — or a snack on its own.",'🥒','lowcarb',1,1,1,'persian'],
     ];
-    $st = $pdo->prepare("INSERT INTO recipes (name,tag,minutes,kcal,protein,carbs,fat,fiber,ingredients,instructions,emoji,diet,heart,lowsodium,diabetic) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-    foreach ($recipes as $r) $st->execute($r);
+    $st = $pdo->prepare("INSERT INTO recipes (name,tag,minutes,kcal,protein,carbs,fat,fiber,ingredients,instructions,emoji,diet,heart,lowsodium,diabetic,cuisine) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    foreach ($recipes as $r) $st->execute(array_pad($r, 16, ''));
 }
 
 function seed_exercises(PDO $pdo): void {
