@@ -776,7 +776,9 @@ function openAddSheet(meal, tab0) {
         `<button data-v="${m}" class="${m === meal ? 'on' : ''}">${m[0].toUpperCase() + m.slice(1, m === 'breakfast' ? 5 : 20)}</button>`).join('')}
     </div>
     <div class="seg" id="addTab" style="margin-bottom:14px">
-      ${[['search', 'search'], ['barcode', 'barcode'], ['photo', 'camera'], ['meals', 'star'], ['custom', 'pencil']].map(([t, icn]) =>
+      ${[['search', 'search'], ['barcode', 'barcode'], ['photo', 'camera'], ['meals', 'star'],
+         ...(S.settings.cookunity_on === '1' ? [['cookunity', 'chefhat']] : []),
+         ['custom', 'pencil']].map(([t, icn]) =>
         `<button data-v="${t}" class="${t === tab ? 'on' : ''}">${ic(icn, 17)}</button>`).join('')}
     </div>
     <div class="tiny" id="addTabLbl" style="text-align:center;margin:-8px 0 12px"></div>
@@ -785,7 +787,7 @@ function openAddSheet(meal, tab0) {
   sh.querySelector('#addMeal').querySelectorAll('button').forEach(b => b.onclick = () => {
     sh.querySelectorAll('#addMeal button').forEach(x => x.classList.remove('on')); b.classList.add('on');
   });
-  const TAB_LBL = { search: 'Search foods', barcode: 'Scan a barcode (free)', photo: 'AI photo scan', meals: 'My saved meals', custom: 'Custom food' };
+  const TAB_LBL = { search: 'Search foods', barcode: 'Scan a barcode (free)', photo: 'AI photo scan', meals: 'My saved meals', cookunity: 'CookUnity — your ordered meals', custom: 'Custom food' };
   sh.querySelector('#addTabLbl').textContent = TAB_LBL[tab];
   sh.querySelector('#addTab').querySelectorAll('button').forEach(b => b.onclick = () => {
     sh.querySelectorAll('#addTab button').forEach(x => x.classList.remove('on')); b.classList.add('on');
@@ -976,6 +978,30 @@ function openAddSheet(meal, tab0) {
         });
         el.querySelectorAll('[data-delmeal]').forEach(b => b.onclick = async () => {
           await api('del_meal', { id: +b.dataset.delmeal }); body();
+        });
+      });
+    }
+    if (tab === 'cookunity') {
+      el.innerHTML = '<div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:45%"></div><div class="muted" style="text-align:center">Fetching your CookUnity deliveries…</div>';
+      api('cookunity_meals').then(r => {
+        if (!r.ok) { el.innerHTML = `<div class="error-msg">${esc(r.error)}</div>`; return; }
+        if (!r.days.length) { el.innerHTML = `<div class="empty"><div class="em">${ic('chefhat', 34)}</div>No upcoming CookUnity deliveries with meals found.</div>`; return; }
+        el.innerHTML = r.days.map(d => `
+          <div class="tiny" style="font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:6px 0 4px">Delivery ${esc(d.displayDate)}</div>
+          ${d.items.map(it => `
+            <div class="food-row">
+              <div class="grow"><div class="n">${esc(it.name)}${it.qty > 1 ? ` <span class="tiny">×${it.qty}</span>` : ''}</div>
+                <div class="d">${it.chef ? 'Chef ' + esc(it.chef) + ' · ' : ''}${it.kcal != null ? `${it.kcal} kcal · P ${it.protein} · C ${it.carbs} · F ${it.fat} <span class="tiny">per meal</span>` : '<span class="tiny">nutrition unavailable for this date</span>'}</div></div>
+              ${it.kcal != null ? `<button class="btn small" data-cu='${JSON.stringify({ name: it.name + ' (CookUnity)', grams: 350, kcal: +it.kcal, protein: +it.protein, carbs: +it.carbs, fat: +it.fat, fiber: +it.fiber || 0, sugar: +it.sugar || 0, sodium: +it.sodium || 0, satfat: 0 }).replace(/'/g, '&#39;')}'>${ic('plus', 16, 2.4)}</button>` : ''}
+            </div>`).join('')}`).join('');
+        el.querySelectorAll('[data-cu]').forEach(btn => btn.onclick = async () => {
+          const f = JSON.parse(btn.dataset.cu.replace(/&#39;/g, "'"));
+          const r2 = await api('log_food', { ...f, date: todayStr(), meal: getMeal() });
+          if (r2.ok) {
+            toast(`${f.name.replace(' (CookUnity)', '')} logged`);
+            btn.innerHTML = ic('check', 16, 2.4);
+            setTimeout(() => { btn.innerHTML = ic('plus', 16, 2.4); }, 900);
+          }
         });
       });
     }
@@ -1733,6 +1759,20 @@ async function renderSettings() {
       <button class="btn small secondary" id="sKeySave">Save key</button>
     </div>
 
+    <div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('chefhat', 16)}</span>CookUnity</div>
+      ${st.cookunity_on === '1' ? `
+        <div class="muted" style="margin-bottom:10px">Connected as <b>${esc(st.cookunity_email || '')}</b>. Your ordered meals appear in the add-food sheet (chef-hat tab) with their nutrition — one tap to log.</div>
+        <button class="btn small secondary" id="sCuOff">Disconnect</button>
+      ` : `
+        <div class="muted" style="margin-bottom:10px">Order from CookUnity? Connect your account and your delivered meals show up ready to log, nutrition included. Optional — off unless you connect it.</div>
+        <div class="field"><input id="sCuEmail" type="email" placeholder="CookUnity email" autocomplete="off"></div>
+        <div class="field"><input id="sCuPass" type="password" placeholder="CookUnity password" autocomplete="off"></div>
+        <button class="btn small secondary" id="sCuSave">Connect CookUnity</button>
+        <div class="tiny" style="margin-top:8px">Your login is stored on your own server and used only to fetch your meals.</div>
+      `}
+    </div>
+
     <button class="btn danger" id="sLogout" style="margin-top:6px">Log out</button>
     <p class="tiny" style="text-align:center;margin-top:16px">VitaTrack · not medical advice — consult your doctor for health decisions.</p>
   </div>`);
@@ -1806,6 +1846,18 @@ async function renderSettings() {
     };
   };
   setPushBtn();
+  const cuSave = $('#sCuSave');
+  if (cuSave) cuSave.onclick = async () => {
+    cuSave.disabled = true; cuSave.textContent = 'Connecting…';
+    const r = await api('cookunity_save', { email: $('#sCuEmail').value, password: $('#sCuPass').value });
+    if (r.ok) { S.settings = r.settings; toast('CookUnity connected'); render(); }
+    else { toast(r.error); cuSave.disabled = false; cuSave.textContent = 'Connect CookUnity'; }
+  };
+  const cuOff = $('#sCuOff');
+  if (cuOff) cuOff.onclick = async () => {
+    const r = await api('cookunity_disconnect');
+    if (r.ok) { S.settings = r.settings; toast('CookUnity disconnected'); render(); }
+  };
   $('#sKeySave').onclick = async () => {
     const v = $('#sKey').value.trim();
     if (!v) return toast('Paste your API key first');
