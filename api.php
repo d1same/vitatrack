@@ -220,11 +220,19 @@ case 'foods': {
     $uid = require_user();
     $q = trim((string)($in['q'] ?? ''));
     if ($q === '') {
-        $st = db()->prepare("SELECT * FROM foods WHERE user_id IS NULL OR user_id=? ORDER BY user_id DESC, name LIMIT 60");
+        // curated starter foods first (they have the lowest ids)
+        $st = db()->prepare("SELECT * FROM foods WHERE user_id IS NULL OR user_id=?
+            ORDER BY (user_id IS NOT NULL) DESC, id LIMIT 60");
         $st->execute([$uid]);
     } else {
-        $st = db()->prepare("SELECT * FROM foods WHERE (user_id IS NULL OR user_id=?) AND name LIKE ? ORDER BY user_id DESC, name LIMIT 60");
-        $st->execute([$uid, '%' . str_replace(['%','_'], ['\%','\_'], $q) . '%']);
+        $esc = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $q);
+        // rank: my foods → name starts with query → shorter (simpler) names
+        $st = db()->prepare("SELECT * FROM foods WHERE (user_id IS NULL OR user_id=?)
+            AND name LIKE ? ESCAPE '\\'
+            ORDER BY (user_id IS NOT NULL) DESC,
+                     CASE WHEN name LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END,
+                     LENGTH(name) LIMIT 60");
+        $st->execute([$uid, "%$esc%", "$esc%"]);
     }
     out(['ok' => true, 'foods' => $st->fetchAll()]);
 }

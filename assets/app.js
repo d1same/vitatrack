@@ -797,8 +797,8 @@ function openAddSheet(meal, tab0) {
     const foodRowHTML = (f, src) => `
       <div class="food-row">
         <div class="grow"><div class="n">${dot(densityClass(+f.kcal))} ${esc(f.name)}${+f.keto ? ' <span class="kmark" title="Keto-friendly">' + ic('leaf', 11) + '</span>' : ''}${f.user_id ? ' <span class="tiny">(mine)</span>' : ''}${src === 'off' ? ' <span class="tiny">· online</span>' : ''}</div>
-          <div class="d">${Math.round(f.kcal)} kcal · P ${f.protein} · C ${f.carbs} · F ${f.fat} <span class="tiny">per 100g</span></div></div>
-        <input type="number" inputmode="numeric" value="100" data-g class="grams-in"> <span class="tiny">g</span>
+          <div class="d">${Math.round(f.kcal)} kcal · P ${f.protein} · C ${f.carbs} · F ${f.fat} <span class="tiny">per 100g${+f.serving_g ? ` · ${esc(f.serving_label || 'serving')} ≈ ${Math.round(f.serving_g)}g` : ''}</span></div></div>
+        <input type="number" inputmode="numeric" value="${+f.serving_g ? Math.round(f.serving_g) : 100}" data-g class="grams-in"> <span class="tiny">g</span>
         <button class="btn small" data-add='${JSON.stringify({ name: f.name, kcal: +f.kcal, protein: +f.protein, carbs: +f.carbs, fat: +f.fat, fiber: +f.fiber || 0, sugar: +f.sugar || 0, sodium: +f.sodium || 0, satfat: +f.satfat || 0 }).replace(/'/g, '&#39;')}' data-src="${src || ''}">${ic('plus', 16, 2.4)}</button>
       </div>`;
     const wireAdd = container => {

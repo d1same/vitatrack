@@ -32,7 +32,12 @@ function ensure_cols(PDO $pdo, string $table, array $cols): bool {
     return $added;
 }
 
+const SCHEMA_VERSION = 18; // bump when schema or seed content changes
+
 function init_schema(PDO $pdo): void {
+    // Fast path: schema already current — skip all migration/seed checks
+    if ((int)$pdo->query('PRAGMA user_version')->fetchColumn() === SCHEMA_VERSION) return;
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -76,7 +81,8 @@ function init_schema(PDO $pdo): void {
         kcal REAL NOT NULL, protein REAL DEFAULT 0, carbs REAL DEFAULT 0,
         fat REAL DEFAULT 0, fiber REAL DEFAULT 0,
         keto INTEGER DEFAULT 0,
-        sugar REAL DEFAULT 0, sodium REAL DEFAULT 0, satfat REAL DEFAULT 0
+        sugar REAL DEFAULT 0, sodium REAL DEFAULT 0, satfat REAL DEFAULT 0,
+        serving_g REAL, serving_label TEXT
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS diary (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,12 +186,15 @@ function init_schema(PDO $pdo): void {
 
     // In-place upgrade of older databases
     $foodsUpgraded = ensure_cols($pdo, 'foods', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
+    ensure_cols($pdo, 'foods', ['serving_g' => 'REAL', 'serving_label' => 'TEXT']);
     ensure_cols($pdo, 'diary', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
     $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0', 'cuisine' => "TEXT DEFAULT ''"]);
     $foodsUpgraded = $foodsUpgraded || $pdo->query("SELECT COUNT(*) c FROM foods WHERE user_id IS NULL AND name LIKE 'Ghormeh%'")->fetch()['c'] == 0;
+    $recipesUpgraded = $recipesUpgraded || $pdo->query("SELECT COUNT(*) c FROM recipes WHERE name='Protein Pancakes'")->fetch()['c'] == 0;
     ensure_cols($pdo, 'users', ['reset_token' => 'TEXT', 'reset_expires' => 'INTEGER', 'reset_requested' => 'INTEGER']);
 
     seed($pdo, $foodsUpgraded, $recipesUpgraded);
+    $pdo->exec('PRAGMA user_version = ' . SCHEMA_VERSION);
 }
 
 function seed(PDO $pdo, bool $reseedFoods = false, bool $reseedRecipes = false): void {
@@ -196,6 +205,30 @@ function seed(PDO $pdo, bool $reseedFoods = false, bool $reseedRecipes = false):
     if ($pdo->query("SELECT COUNT(*) c FROM recipes")->fetch()['c'] == 0) seed_recipes($pdo);
     if ($pdo->query("SELECT COUNT(*) c FROM exercises")->fetch()['c'] == 0) seed_exercises($pdo);
     if ($pdo->query("SELECT COUNT(*) c FROM lessons")->fetch()['c'] == 0) seed_lessons($pdo);
+    import_usda_foods($pdo);
+}
+
+// Bulk-import the bundled USDA FNDDS database (includes/food_db.csv.gz,
+// ~5,300 generic foods and dishes with lab-analyzed nutrition, public domain).
+function import_usda_foods(PDO $pdo): void {
+    $file = __DIR__ . '/food_db.csv.gz';
+    if (!is_file($file) || !function_exists('gzopen')) return;
+    if ($pdo->query("SELECT COUNT(*) c FROM foods WHERE user_id IS NULL")->fetch()['c'] > 1000) return; // already imported
+    $gz = gzopen($file, 'rb');
+    if (!$gz) return;
+    $pdo->beginTransaction();
+    $st = $pdo->prepare("INSERT INTO foods
+        (user_id,name,kcal,protein,carbs,fat,fiber,keto,sugar,sodium,satfat,serving_g,serving_label)
+        VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?)");
+    while (($line = gzgets($gz, 4096)) !== false) {
+        $r = str_getcsv(trim($line));
+        if (count($r) < 11 || $r[0] === '') continue;
+        $keto = ((float)$r[3] - (float)$r[5]) <= 8 ? 1 : 0;
+        $st->execute([$r[0], $r[1], $r[2], $r[3], $r[4], $r[5], $keto, $r[6], $r[7], $r[8],
+                      $r[9] !== '' ? $r[9] : null, $r[10] !== '' ? $r[10] : null]);
+    }
+    gzclose($gz);
+    $pdo->commit();
 }
 
 function seed_foods(PDO $pdo): void {
@@ -338,6 +371,20 @@ function seed_recipes(PDO $pdo): void {
         // ── Low-carb (not strict keto) ──
         ['Asian Chicken Lettuce Wraps','lunch',20,350,30,18,16,4,"150g ground chicken|Water chestnuts, scallions|Low-sodium soy, ginger, garlic|Butter lettuce cups","Brown the chicken with ginger and garlic, add chopped water chestnuts and sauce. Spoon into lettuce cups.",'🥬','lowcarb',1,0,1],
         ['Greek Chicken Bowl','dinner',25,420,38,15,22,5,"150g chicken thigh|Cucumber, tomato, red onion|40g feta|Tzatziki|Olive oil, oregano","Grill oregano-marinated chicken. Serve over chopped salad with feta and a spoon of tzatziki — no rice needed.",'🇬🇷','lowcarb',1,0,1],
+
+        // ── More everyday favorites ──
+        ['Protein Pancakes','breakfast',15,330,28,32,9,3,"1 banana|2 eggs|30g oats|1/2 scoop whey|Cinnamon|1 tsp oil for the pan","Blend everything into a batter. Cook small pancakes 2 min per side over medium heat. Top with berries.",'🥞','balanced',1,1,1],
+        ['Scrambled Eggs on Sourdough','breakfast',10,360,20,30,17,2,"2 eggs|1 slice sourdough|1 tsp olive oil|Chives, pepper","Whisk eggs, cook low and slow in olive oil, stirring. Pile onto toasted sourdough with chives.",'🍞','balanced',1,1,1],
+        ['Caprese Salad','lunch',10,340,15,8,28,2,"125g fresh mozzarella|2 tomatoes|Basil leaves|1 tbsp olive oil, balsamic","Slice mozzarella and tomatoes, layer with basil. Drizzle with oil and a little balsamic.",'🍅','lowcarb',1,1,1],
+        ['Chicken Noodle Soup','lunch',35,320,28,32,8,3,"120g chicken breast|Egg noodles|Carrot, celery, onion|Low-sodium chicken broth|Dill","Simmer vegetables in broth 10 min, add chicken and noodles, cook until tender. Finish with dill.",'🍜','balanced',1,0,1],
+        ['Tuna White-Bean Salad','lunch',10,380,32,30,14,8,"1 can tuna|150g white beans|Red onion, parsley|1 tbsp olive oil, lemon","Toss drained tuna and beans with onion, parsley, oil and lemon. Sturdy enough to pack for work.",'🥫','balanced',1,0,1],
+        ['Hummus Veggie Sandwich','lunch',10,390,13,52,15,10,"2 slices whole-grain bread|3 tbsp hummus|Cucumber, tomato, sprouts|Avocado slices","Spread hummus generously, stack the vegetables and avocado, season, and press together.",'🥪','balanced',1,0,1],
+        ['Beef & Broccoli Stir-Fry','dinner',20,430,35,18,25,4,"180g flank steak, sliced thin|300g broccoli|Low-sodium soy, garlic, ginger|1 tsp sesame oil","Sear the beef hard 2 min, remove. Stir-fry broccoli, return beef with sauce, toss 1 min. No rice needed.",'🥦','lowcarb',1,0,1],
+        ['Shrimp Tacos','dinner',20,460,32,42,17,6,"180g shrimp|2 corn tortillas|Cabbage slaw with lime|Yogurt-chipotle sauce|Cilantro","Sear seasoned shrimp 2 min per side. Load tortillas with slaw, shrimp and a drizzle of the sauce.",'🌮','balanced',1,0,1],
+        ['Sheet-Pan Chicken Fajitas','dinner',30,440,38,32,17,5,"180g chicken breast, sliced|Bell peppers & onion|Fajita spices, olive oil|2 small tortillas","Toss everything on a sheet pan, roast 20 min at 220°C. Serve sizzling with warm tortillas.",'🫑','balanced',1,1,1],
+        ['Light Egg Fried Rice','dinner',15,420,18,55,13,3,"150g day-old cooked rice|2 eggs|Peas, carrot, scallion|Low-sodium soy|1 tsp sesame oil","Scramble the eggs, set aside. Stir-fry vegetables, add rice on high heat, return eggs, season, toss.",'🍳','balanced',1,0,1],
+        ['Apple & Peanut Butter','snack',5,270,8,30,14,6,"1 apple, sliced|2 tbsp peanut butter|Cinnamon","Slice, dip, sprinkle. The fiber-fat combo keeps you full for hours.",'🍎','balanced',1,1,0],
+        ['Turkey Roll-Ups','snack',5,180,22,4,8,1,"80g turkey slices|2 tbsp cream cheese|Cucumber sticks|Everything seasoning","Spread cream cheese on turkey slices, add a cucumber stick, roll and slice into pinwheels.",'🌀','lowcarb',0,0,1],
 
         // ── Persian ──
         ['Joojeh Kabab with Grilled Tomato','dinner',35,420,45,8,22,2,"400g chicken thigh or breast, cubed|Saffron bloomed in hot water|1/2 grated onion, lemon juice|2 tomatoes for grilling|Olive oil","Marinate chicken in saffron, onion, lemon and oil for 2+ hours. Skewer and grill 12-15 min, turning; grill tomatoes alongside. Serve with salad shirazi instead of rice to keep it light.",'🍢','lowcarb',1,1,1,'persian'],
