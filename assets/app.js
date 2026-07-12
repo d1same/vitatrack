@@ -48,6 +48,7 @@ const fmtW = kg => kg == null ? '—' : (isImperial() ? round1(kg2lb(kg)) + ' lb
 const wUnit = () => isImperial() ? 'lb' : 'kg';
 const inputW2kg = v => isImperial() ? lb2kg(parseFloat(v)) : parseFloat(v);
 const kg2input = kg => kg == null ? '' : round1(isImperial() ? kg2lb(kg) : kg);
+const glassMl = () => Math.max(50, Math.min(1000, parseInt(S.settings?.water_glass_ml) || 250));
 
 function applyTheme() {
   const t = S.settings.theme || localStorage.getItem('vt_theme') || 'auto';
@@ -609,11 +610,12 @@ async function renderHome() {
         <div class="tiny" style="margin-top:6px;color:var(--purple);font-weight:650">Tap to start ${esc(p.fasting_plan)}</div>
       </div>`;
   const waterPct = Math.min(100, day.water / (p.water_ml || 2500) * 100);
-  const waterTile = `<div class="card tile" ${fastTile ? '' : 'style="grid-column:1/-1"'} onclick="addWater(250)">
+  const glass = glassMl();
+  const waterTile = `<div class="card tile" ${fastTile ? '' : 'style="grid-column:1/-1"'} onclick="addWater(${glass})">
       <div class="tile-head" style="color:var(--blue)">${ic('droplet', 14)} Water</div>
       <b class="tile-big">${(day.water / 1000).toFixed(2)}<span style="font-size:12px;font-weight:600;color:var(--text2)"> / ${((p.water_ml || 2500) / 1000).toFixed(1)} L</span></b>
       <div class="bar" style="margin-top:8px"><i data-w="${waterPct}%" style="background:var(--blue);width:0"></i></div>
-      <div class="tiny" style="margin-top:6px">Tap for +250 ml · <u onclick="event.stopPropagation();addWater(-250)">undo</u></div>
+      <div class="tiny" style="margin-top:6px">Tap for +${glass} ml · <u onclick="event.stopPropagation();addWater(-${glass})">undo</u></div>
     </div>`;
 
   shell(`<div class="screen">
@@ -1175,7 +1177,7 @@ async function renderDiary() {
             <span class="kc" style="margin-left:6px">${Math.round(kc)} kcal</span>
           </span></div>
         ${items.map(e => `<div class="food-row">
-          <div class="grow"><div class="n">${entryDot(e)} ${esc(e.name)}</div><div class="d">${round1(e.grams)}g · P${round1(e.protein)} C${round1(e.carbs)} F${round1(e.fat)}</div></div>
+          <div class="grow" data-edit="${e.id}" style="cursor:pointer"><div class="n">${entryDot(e)} ${esc(e.name)}</div><div class="d">${round1(e.grams)}g · P${round1(e.protein)} C${round1(e.carbs)} F${round1(e.fat)}</div></div>
           <span class="kcal">${Math.round(e.kcal)}</span>
           <button class="del" data-del="${e.id}">✕</button>
         </div>`).join('') || '<div class="tiny" style="padding:4px 0 8px">Nothing logged yet</div>'}
@@ -1224,6 +1226,32 @@ async function renderDiary() {
   document.querySelectorAll('[data-meal]').forEach(b => b.onclick = () => openAddSheet(b.dataset.meal));
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { await api('del_food_entry', { id: +b.dataset.del }); render(); });
   document.querySelectorAll('[data-delw]').forEach(b => b.onclick = async () => { await api('del_workout', { id: +b.dataset.delw }); render(); });
+  document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+    const e = day.entries.find(x => +x.id === +b.dataset.edit);
+    if (e) openEntryEditor(e);
+  });
+}
+
+// Adjust a logged entry's portion (rescales macros) or delete it.
+function openEntryEditor(e) {
+  const per = g => Math.round(+e.kcal * (g / +e.grams)); // live kcal preview at new grams
+  const sh = openSheet(`<h3>${esc(e.name)}</h3>
+    <div class="muted" style="margin-bottom:12px">Currently ${round1(e.grams)}g · ${Math.round(e.kcal)} kcal · P${round1(e.protein)} C${round1(e.carbs)} F${round1(e.fat)}</div>
+    <div class="field"><label>Portion (grams)</label><input id="edG" type="number" inputmode="decimal" value="${round1(e.grams)}"></div>
+    <div class="tiny" style="margin:-6px 0 14px">New total: <b id="edPreview">${Math.round(e.kcal)}</b> kcal</div>
+    <button class="btn" id="edSave">Save portion</button>
+    <button class="btn danger" id="edDel" style="margin-top:8px">Delete this entry</button>`);
+  const gIn = sh.querySelector('#edG');
+  gIn.oninput = () => { const g = parseFloat(gIn.value); sh.querySelector('#edPreview').textContent = g > 0 ? per(g) : '—'; };
+  sh.querySelector('#edSave').onclick = async () => {
+    const g = parseFloat(gIn.value);
+    if (!g || g <= 0) return toast('Enter a valid portion');
+    const r = await api('update_food_entry', { id: e.id, grams: g });
+    if (r.ok) { closeSheet(); toast('Portion updated'); render(); } else toast(r.error);
+  };
+  sh.querySelector('#edDel').onclick = async () => {
+    await api('del_food_entry', { id: e.id }); closeSheet(); toast('Entry removed'); render();
+  };
 }
 const shiftDate = (ds, n) => { const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -1736,6 +1764,10 @@ async function renderSettings() {
         <div class="seg" id="segTheme">
           ${['auto', 'light', 'dark'].map(t => `<button data-v="${t}" class="${(st.theme || 'auto') === t ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
         </div></div>
+      <div class="field" style="margin-bottom:0"><label>Water glass size — how much each tap adds</label>
+        <div class="seg" id="segGlass">
+          ${[200, 250, 330, 500].map(v => `<button data-glass="${v}" class="${glassMl() === v ? 'on' : ''}">${v} ml</button>`).join('')}
+        </div></div>
     </div>
 
     <div class="card">
@@ -1773,6 +1805,12 @@ async function renderSettings() {
       `}
     </div>
 
+    <div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--surface2)">${ic('download', 16)}</span>Your data</div>
+      <div class="muted" style="margin-bottom:10px">Download a complete backup of everything you've logged — diary, weight, water, workouts, fasts and biometrics.</div>
+      <button class="btn small secondary" id="sExport">Export my data (JSON)</button>
+    </div>
+
     <button class="btn danger" id="sLogout" style="margin-top:6px">Log out</button>
     <p class="tiny" style="text-align:center;margin-top:16px">VitaTrack · not medical advice — consult your doctor for health decisions.</p>
   </div>`);
@@ -1791,6 +1829,10 @@ async function renderSettings() {
   $('#segTheme').querySelectorAll('button').forEach(b => b.onclick = async () => {
     S.settings.theme = b.dataset.v; localStorage.setItem('vt_theme', b.dataset.v);
     await api('save_settings', { theme: b.dataset.v }); applyTheme(); render();
+  });
+  $('#segGlass').querySelectorAll('button').forEach(b => b.onclick = async () => {
+    S.settings.water_glass_ml = b.dataset.glass;
+    await api('save_settings', { water_glass_ml: b.dataset.glass }); render();
   });
   document.querySelectorAll('[data-rem]').forEach(cb => cb.onchange = async () => {
     if (cb.checked && 'Notification' in window && Notification.permission === 'default') {
@@ -1863,6 +1905,17 @@ async function renderSettings() {
     if (!v) return toast('Paste your API key first');
     await api('save_settings', { anthropic_key: v });
     toast('API key saved'); render();
+  };
+  $('#sExport').onclick = async () => {
+    const r = await api('export_data');
+    if (!r.ok) return toast(r.error || 'Export failed');
+    const blob = new Blob([JSON.stringify(r.export, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'vitatrack-backup-' + todayStr() + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast('Backup downloaded');
   };
   $('#sLogout').onclick = async () => { await api('logout'); S.user = null; clearInterval(S.fastTimer); render(); };
 }

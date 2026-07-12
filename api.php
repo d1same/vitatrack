@@ -400,6 +400,44 @@ case 'del_food_entry': {
     out(['ok' => true]);
 }
 
+case 'update_food_entry': {
+    $uid = require_user();
+    $id = (int)($in['id'] ?? 0);
+    $grams = (float)($in['grams'] ?? 0);
+    if ($grams <= 0 || $grams > 5000) fail('Enter a valid portion');
+    $st = db()->prepare("SELECT * FROM diary WHERE id=? AND user_id=?");
+    $st->execute([$id, $uid]);
+    $e = $st->fetch();
+    if (!$e) fail('Entry not found');
+    // rescale nutrition from the stored portion (server-side so values stay honest)
+    $k = ($e['grams'] > 0) ? $grams / (float)$e['grams'] : 1;
+    db()->prepare("UPDATE diary SET grams=?, kcal=?, protein=?, carbs=?, fat=?, fiber=?, sugar=?, sodium=?, satfat=? WHERE id=?")
+      ->execute([round($grams, 1),
+                 round($e['kcal'] * $k, 1), round($e['protein'] * $k, 1), round($e['carbs'] * $k, 1),
+                 round($e['fat'] * $k, 1), round($e['fiber'] * $k, 1), round($e['sugar'] * $k, 1),
+                 round($e['sodium'] * $k), round($e['satfat'] * $k, 1), $id]);
+    out(['ok' => true]);
+}
+
+case 'export_data': {
+    $uid = require_user();
+    $pull = function (string $sql) use ($uid) {
+        $st = db()->prepare($sql);
+        $st->execute([$uid]);
+        return $st->fetchAll();
+    };
+    out(['ok' => true, 'export' => [
+        'app' => 'VitaTrack', 'exported_at' => gmdate('c'),
+        'profile' => get_profile($uid),
+        'diary'   => $pull("SELECT date,meal,name,grams,kcal,protein,carbs,fat,fiber,sugar,sodium,satfat FROM diary WHERE user_id=? ORDER BY date,id"),
+        'weights' => $pull("SELECT date,weight_kg,body_fat FROM weights WHERE user_id=? ORDER BY date"),
+        'water'   => $pull("SELECT date,ml FROM water WHERE user_id=? ORDER BY date"),
+        'workouts'=> $pull("SELECT date,name,minutes,kcal FROM workouts WHERE user_id=? ORDER BY date,id"),
+        'fasts'   => $pull("SELECT start_ts,end_ts,target_hours FROM fasts WHERE user_id=? ORDER BY id"),
+        'biometrics' => $pull("SELECT date,type,v1,v2 FROM biometrics WHERE user_id=? ORDER BY date,id"),
+    ]]);
+}
+
 // ── Water ────────────────────────────────────────────────────────────
 case 'water': {
     $uid = require_user();
