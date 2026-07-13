@@ -746,6 +746,20 @@ case 'due_reminder': {
     out(['ok' => true, 'title' => 'Thrive', 'body' => 'Time for a healthy habit — log your day.']);
 }
 
+// Ready-to-paste URL for a free external cron pinger (cron-job.org etc.) to
+// drive reminders when the host has no cron. Same key file cron.php uses.
+case 'cron_url': {
+    require_user();
+    $keyFile = __DIR__ . '/data/cron.key';
+    if (!is_file($keyFile)) { file_put_contents($keyFile, bin2hex(random_bytes(16))); @chmod($keyFile, 0600); }
+    $key = trim((string)file_get_contents($keyFile));
+    $scheme = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $dir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/'));
+    $base = rtrim($scheme . '://' . $host . $dir, '/');
+    out(['ok' => true, 'url' => $base . '/cron.php?token=' . $key]);
+}
+
 // ── CookUnity (opt-in meal-delivery integration) ─────────────────────
 case 'cookunity_save': {
     $uid = require_user();

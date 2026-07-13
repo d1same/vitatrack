@@ -2062,6 +2062,7 @@ async function renderSettings() {
       <div class="spacer"></div>
       <button class="btn small secondary" id="sPush" style="width:100%">Checking…</button>
       <div id="notifState" class="tiny" style="margin-top:8px"></div>
+      <div id="cronHelp" style="margin-top:10px"></div>
     </div>
 
     <div class="card">
@@ -2149,7 +2150,37 @@ async function renderSettings() {
   };
   updateNotifState();
 
-  // Background push (works even when the app is closed — needs the cron job on the server)
+  // Shows a ready-to-paste URL for a free external cron pinger (cron-job.org)
+  // so reminders fire when the app is closed even if the host has no cron.
+  const renderCronHelp = async (sub) => {
+    const el = $('#cronHelp'); if (!el) return;
+    if (!sub) { el.innerHTML = ''; return; }
+    let url = '';
+    try { url = (await api('cron_url')).url || ''; } catch (e) {}
+    if (!url) { el.innerHTML = ''; return; }
+    el.innerHTML = `<details>
+      <summary class="tiny" style="cursor:pointer;color:var(--accent)">${ic('bell', 12)} Reminders only arrive when the app is open? Fix it (1-min setup)</summary>
+      <div class="tiny muted" style="margin-top:8px;line-height:1.6">
+        Sending reminders while the app is closed needs a scheduler to ping your server every so often. If your host has no cron jobs, use a free one:
+        <ol style="margin:8px 0;padding-left:18px">
+          <li>Make a free account at <a href="https://cron-job.org" target="_blank" rel="noopener">cron-job.org</a>.</li>
+          <li>Create a cronjob with the URL below, set to run <b>every 15 minutes</b>.</li>
+        </ol>
+        <div class="row" style="gap:6px;align-items:stretch">
+          <input id="cronUrl" readonly value="${esc(url)}" style="flex:1;font-size:11.5px" onclick="this.select()">
+          <button class="btn small secondary" id="cronCopy" style="white-space:nowrap">${ic('copy', 13)} Copy</button>
+        </div>
+        <div style="margin-top:6px">Keep this URL private — anyone with it can trigger your reminder sends.</div>
+      </div>
+    </details>`;
+    const cc = $('#cronCopy');
+    if (cc) cc.onclick = async () => {
+      try { await navigator.clipboard.writeText(url); toast('Cron URL copied'); }
+      catch (e) { const i = $('#cronUrl'); if (i) { i.select(); document.execCommand('copy'); toast('Cron URL copied'); } }
+    };
+  };
+
+  // Background push (works even when the app is closed — needs a scheduler pinging cron.php)
   const setPushBtn = async () => {
     const btn = $('#sPush'); if (!btn) return;
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -2164,6 +2195,7 @@ async function renderSettings() {
     S._pushOn = !!sub;
     btn.disabled = false;
     btn.textContent = sub ? 'Background notifications: ON — tap to turn off' : 'Enable background notifications';
+    renderCronHelp(sub);
     btn.onclick = async () => {
       btn.disabled = true;
       try {
