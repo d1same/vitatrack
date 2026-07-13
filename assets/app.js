@@ -49,6 +49,18 @@ const wUnit = () => isImperial() ? 'lb' : 'kg';
 const inputW2kg = v => isImperial() ? lb2kg(parseFloat(v)) : parseFloat(v);
 const kg2input = kg => kg == null ? '' : round1(isImperial() ? kg2lb(kg) : kg);
 const glassMl = () => Math.max(50, Math.min(1000, parseInt(S.settings?.water_glass_ml) || 250));
+// Water is stored in ml; imperial users see fluid ounces.
+const ML_PER_OZ = 29.5735;
+const fmtWater = ml => isImperial() ? Math.round(ml / ML_PER_OZ) + ' oz' : (ml / 1000).toFixed(2) + ' L';
+const fmtWaterGoal = ml => isImperial() ? Math.round(ml / ML_PER_OZ) + ' oz' : (ml / 1000).toFixed(1) + ' L';
+const glassLabel = () => isImperial() ? Math.round(glassMl() / ML_PER_OZ) + ' oz' : glassMl() + ' ml';
+// Cooking-effort preference: soft cap on recipe prep time for the meal planner
+const COOK_MAX = { quick: 20, medium: 35, any: 999 };
+const cookMax = () => COOK_MAX[S.settings?.cook_time] || 999;
+// Glass-size options per unit → each maps to a stored ml value
+const glassOptions = () => isImperial()
+  ? [[237, '8 oz'], [355, '12 oz'], [473, '16 oz'], [591, '20 oz']]
+  : [[200, '200 ml'], [250, '250 ml'], [330, '330 ml'], [500, '500 ml']];
 
 function applyTheme() {
   const t = S.settings.theme || localStorage.getItem('vt_theme') || 'auto';
@@ -522,7 +534,7 @@ function showPlanReveal(t) {
     </div>
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('droplet', 16)}</span>Daily water goal</div>
-      <b style="font-size:22px">${(t.water_ml / 1000).toFixed(1)} L</b> <span class="muted">≈ ${Math.round(t.water_ml / 250)} glasses</span>
+      <b style="font-size:22px">${fmtWaterGoal(t.water_ml)}</b> <span class="muted">≈ ${Math.round(t.water_ml / 250)} glasses</span>
     </div>
     <button class="btn" id="planGo">Let's go</button>
   </div>`;
@@ -615,9 +627,9 @@ async function renderHome() {
   const glass = glassMl();
   const waterTile = `<div class="card tile" ${fastTile ? '' : 'style="grid-column:1/-1"'} onclick="addWater(${glass})">
       <div class="tile-head" style="color:var(--blue)">${ic('droplet', 14)} Water</div>
-      <b class="tile-big">${(day.water / 1000).toFixed(2)}<span style="font-size:12px;font-weight:600;color:var(--text2)"> / ${((p.water_ml || 2500) / 1000).toFixed(1)} L</span></b>
+      <b class="tile-big">${fmtWater(day.water).split(' ')[0]}<span style="font-size:12px;font-weight:600;color:var(--text2)"> / ${fmtWaterGoal(p.water_ml || 2500)}</span></b>
       <div class="bar" style="margin-top:8px"><i data-w="${waterPct}%" style="background:var(--blue);width:0"></i></div>
-      <div class="tiny" style="margin-top:6px">Tap for +${glass} ml · <u onclick="event.stopPropagation();addWater(-${glass})">undo</u></div>
+      <div class="tiny" style="margin-top:6px">Tap for +${glassLabel()} · <u onclick="event.stopPropagation();addWater(-${glass})">undo</u></div>
     </div>`;
 
   shell(`<div class="screen">
@@ -745,7 +757,7 @@ async function renderCoach(day, m) {
 
 window.addWater = async ml => {
   const r = await api('water', { delta: ml, date: todayStr() });
-  if (r.ok) { toast(ml > 0 ? `+${ml} ml water logged` : 'Removed'); render(); }
+  if (r.ok) { toast(ml > 0 ? `+${isImperial() ? Math.round(ml / ML_PER_OZ) + ' oz' : ml + ' ml'} water logged` : 'Removed'); render(); }
 };
 window.startFastQuick = async () => {
   const hours = parseFloat((S.profile.fasting_plan || '16:8').split(':')[0]) || 16;
@@ -1454,7 +1466,8 @@ async function renderProgress() {
   const bfpts = wRange.filter(w => w.body_fat).map(w => ({ v: +w.body_fat, l: w.date.slice(5) }));
   const kpts = (r.daily || []).map(d => ({ v: +d.kcal, l: d.date.slice(5) }));
   const cpts = (r.daily || []).map(d => ({ v: Math.max(0, +d.netcarbs), l: d.date.slice(5) }));
-  const wapts = (r.water || []).map(d => ({ v: +d.ml / 1000, l: d.date.slice(5) }));
+  const waterDiv = isImperial() ? ML_PER_OZ : 1000;
+  const wapts = (r.water || []).map(d => ({ v: +d.ml / waterDiv, l: d.date.slice(5) }));
   const last = r.weights?.length ? +r.weights[r.weights.length - 1].weight_kg : p.start_weight_kg;
   const lost = p.start_weight_kg ? Math.max(0, p.start_weight_kg - last) : 0;
   const bmi = last && p.height_cm ? round1(last / Math.pow(p.height_cm / 100, 2)) : '—';
@@ -1509,8 +1522,8 @@ async function renderProgress() {
       <div class="card-title"><span class="icon" style="background:var(--orange-soft);color:var(--orange)">${ic('leaf', 16)}</span>Net carbs (g)</div>
       ${barChart(cpts.slice(-30), { color: 'var(--orange)', goal: p.carbs_g })}</div>` : ''}
     <div class="card chart-card">
-      <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('droplet', 16)}</span>Water (L)</div>
-      ${barChart(wapts.slice(-30), { color: 'var(--blue)', goal: (p.water_ml || 2500) / 1000 })}
+      <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('droplet', 16)}</span>Water (${isImperial() ? 'oz' : 'L'})</div>
+      ${barChart(wapts.slice(-30), { color: 'var(--blue)', goal: (p.water_ml || 2500) / waterDiv })}
     </div>
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--purple-soft);color:var(--purple)">${ic('target', 16)}</span>Body stats</div>
@@ -1597,11 +1610,15 @@ function generateWeekPlan() {
   const dietOk = r => p.diet === 'keto' ? r.diet === 'keto' : p.diet === 'lowcarb' ? r.diet !== 'balanced' : true;
   const condOk = r => conds.every(c => recipeOkForCondition(r, c));
   const used = new Set();
+  const maxMin = cookMax();
   const pickFor = slot => {
     let cand = S.recipes.filter(r => r.tag === slot && dietOk(r) && condOk(r));
     if (!cand.length) cand = S.recipes.filter(r => r.tag === slot && dietOk(r));   // relax conditions
     if (!cand.length) cand = S.recipes.filter(r => r.tag === slot);                // relax diet
     if (!cand.length) return null;
+    // soft cook-time preference: keep quick recipes if any qualify, else fall back
+    const quick = cand.filter(r => +r.minutes <= maxMin);
+    if (quick.length) cand = quick;
     const favFresh = cand.filter(r => S.recipeFavs.has(r.name) && !used.has(r.id));
     const fresh = cand.filter(r => !used.has(r.id));
     const pool = favFresh.length ? favFresh : fresh.length ? fresh : cand;
@@ -1702,11 +1719,14 @@ function kitchenWeek(plan, byId) {
         <div class="meal-head"><h3>${label}</h3><span class="kc">${Math.round(kc)} kcal</span></div>
         ${['breakfast','lunch','dinner'].map(slot => {
           const m = meals.find(x => x.meal === slot); const r = m && byId[m.recipe_id];
-          if (!r) return '';
+          if (!r) return `<div class="food-row" style="opacity:.7">
+            <span style="font-size:20px">${KMEALS[slot][0]}</span>
+            <div class="grow" data-swap="${date}|${slot}" style="cursor:pointer"><div class="n" style="color:var(--text3)">Add ${KMEALS[slot][1].toLowerCase()}</div></div>
+            <button class="mini-act" data-swap="${date}|${slot}" title="Choose">${ic('plus', 14)}</button></div>`;
           return `<div class="food-row ${m.cooked ? 'cooked-row' : ''}">
             <span style="font-size:20px" data-view="${r.id}">${KMEALS[slot][0]}</span>
             <div class="grow" data-view="${r.id}" style="cursor:pointer"><div class="n">${esc(r.name)}</div>
-              <div class="d">${KMEALS[slot][1]} · ${Math.round(r.kcal)} kcal · P${Math.round(r.protein)} C${Math.round(r.carbs)} F${Math.round(r.fat)}</div></div>
+              <div class="d">${KMEALS[slot][1]} · ⏱${r.minutes}m · ${Math.round(r.kcal)} kcal · P${Math.round(r.protein)} C${Math.round(r.carbs)} F${Math.round(r.fat)}</div></div>
             ${m.cooked ? `<span class="kcal" style="color:var(--accent)">${ic('check', 16)}</span>`
               : `<button class="mini-act" data-swap="${date}|${slot}" title="Swap">${ic('refresh', 14)}</button>
                  <button class="mini-act" data-cook="${date}|${slot}|${r.id}" title="Cooked — log it" style="color:var(--accent)">${ic('check', 14)}</button>`}
@@ -1731,15 +1751,46 @@ async function kGenerate() {
   toast('Week planned'); render();
 }
 
-async function kSwap(date, slot) {
+// Replace a planned meal — search the whole library or shuffle a fitting one.
+function kSwap(date, slot) {
   const p = S.profile, conds = userConditions(p);
   const dietOk = r => p.diet === 'keto' ? r.diet === 'keto' : p.diet === 'lowcarb' ? r.diet !== 'balanced' : true;
-  let cand = S.recipes.filter(r => r.tag === slot && dietOk(r) && conds.every(c => recipeOkForCondition(r, c)));
-  if (cand.length < 2) cand = S.recipes.filter(r => r.tag === slot && dietOk(r));
-  if (!cand.length) return;
-  const r = cand[Math.floor(Math.random() * cand.length)];
-  await api('set_meal', { date, meal: slot, recipe_id: +r.id });
-  render();
+  const label = KMEALS[slot] ? KMEALS[slot][1] : slot;
+  const set = async id => { await api('set_meal', { date, meal: slot, recipe_id: +id }); closeSheet(); render(); };
+
+  const sh = openSheet(`<h3>Choose your ${esc(label.toLowerCase())}</h3>
+    <div class="field"><input id="kSearch" placeholder="Search any recipe… (e.g. salmon, keto, quick)" autocomplete="off"></div>
+    <button class="btn ghost small" id="kShuffle" style="width:100%;margin-bottom:8px">${ic('refresh', 14)} Surprise me — pick one that fits my plan</button>
+    <div id="kPickList"></div>`);
+
+  const row = r => `<div class="food-row" data-set="${r.id}" style="cursor:pointer">
+      <span style="font-size:22px">${r.emoji}</span>
+      <div class="grow"><div class="n">${esc(r.name)}</div>
+        <div class="d">⏱ ${r.minutes}m · ${Math.round(r.kcal)} kcal · P${Math.round(r.protein)} C${Math.round(r.carbs)} F${Math.round(r.fat)} ${recipeBadges(r, conds)}</div></div>
+      <span class="muted">${ic('plus', 16, 2.4)}</span></div>`;
+
+  const draw = q => {
+    q = (q || '').trim().toLowerCase();
+    let list;
+    if (q) {
+      list = S.recipes.filter(r => (r.name + ' ' + r.diet + ' ' + (r.cuisine || '') + ' ' + r.tag).toLowerCase().includes(q));
+    } else {
+      // default: recipes for this slot, diet-matching first
+      const slotR = S.recipes.filter(r => r.tag === slot);
+      list = [...slotR.filter(dietOk), ...slotR.filter(r => !dietOk(r))];
+    }
+    const el = sh.querySelector('#kPickList');
+    el.innerHTML = list.slice(0, 40).map(row).join('') || `<div class="empty"><div class="em">${ic('search', 30)}</div>No match — try another word.</div>`;
+    el.querySelectorAll('[data-set]').forEach(b => b.onclick = () => set(b.dataset.set));
+  };
+  sh.querySelector('#kSearch').addEventListener('input', e => draw(e.target.value));
+  sh.querySelector('#kShuffle').onclick = () => {
+    let cand = S.recipes.filter(r => r.tag === slot && dietOk(r) && conds.every(c => recipeOkForCondition(r, c)));
+    if (cand.length < 2) cand = S.recipes.filter(r => r.tag === slot && dietOk(r));
+    if (!cand.length) cand = S.recipes.filter(r => r.tag === slot);
+    if (cand.length) set(cand[Math.floor(Math.random() * cand.length)].id);
+  };
+  draw('');
 }
 
 async function kCook(date, slot, rid) {
@@ -1962,9 +2013,14 @@ async function renderSettings() {
         <div class="seg" id="segTheme">
           ${['auto', 'light', 'dark'].map(t => `<button data-v="${t}" class="${(st.theme || 'auto') === t ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
         </div></div>
-      <div class="field" style="margin-bottom:0"><label>Water glass size — how much each tap adds</label>
+      <div class="field"><label>Water glass size — how much each tap adds</label>
         <div class="seg" id="segGlass">
-          ${[200, 250, 330, 500].map(v => `<button data-glass="${v}" class="${glassMl() === v ? 'on' : ''}">${v} ml</button>`).join('')}
+          ${glassOptions().map(([v, lbl]) => `<button data-glass="${v}" class="${glassMl() === v ? 'on' : ''}">${lbl}</button>`).join('')}
+        </div></div>
+      <div class="field" style="margin-bottom:0"><label>Cooking time — how involved your planned meals are</label>
+        <div class="seg" id="segCook">
+          ${[['quick', 'Quick ≤20m'], ['medium', 'Medium'], ['any', 'Any']].map(([v, lbl]) =>
+            `<button data-cook="${v}" class="${(st.cook_time || 'any') === v ? 'on' : ''}">${lbl}</button>`).join('')}
         </div></div>
     </div>
 
@@ -2037,6 +2093,10 @@ async function renderSettings() {
   $('#segGlass').querySelectorAll('button').forEach(b => b.onclick = async () => {
     S.settings.water_glass_ml = b.dataset.glass;
     await api('save_settings', { water_glass_ml: b.dataset.glass }); render();
+  });
+  $('#segCook').querySelectorAll('button').forEach(b => b.onclick = async () => {
+    S.settings.cook_time = b.dataset.cook;
+    await api('save_settings', { cook_time: b.dataset.cook }); render();
   });
   document.querySelectorAll('[data-rem]').forEach(cb => cb.onchange = async () => {
     if (cb.checked && 'Notification' in window && Notification.permission === 'default') {

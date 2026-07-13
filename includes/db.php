@@ -32,7 +32,7 @@ function ensure_cols(PDO $pdo, string $table, array $cols): bool {
     return $added;
 }
 
-const SCHEMA_VERSION = 20; // bump when schema or seed content changes
+const SCHEMA_VERSION = 21; // bump when schema or seed content changes
 
 function init_schema(PDO $pdo): void {
     // Fast path: schema already current — skip all migration/seed checks
@@ -206,7 +206,7 @@ function init_schema(PDO $pdo): void {
     ensure_cols($pdo, 'diary', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
     $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0', 'cuisine' => "TEXT DEFAULT ''"]);
     $foodsUpgraded = $foodsUpgraded || $pdo->query("SELECT COUNT(*) c FROM foods WHERE user_id IS NULL AND name LIKE 'Ghormeh%'")->fetch()['c'] == 0;
-    $recipesUpgraded = $recipesUpgraded || $pdo->query("SELECT COUNT(*) c FROM recipes WHERE name='Protein Pancakes'")->fetch()['c'] == 0;
+    $recipesUpgraded = $recipesUpgraded || $pdo->query("SELECT COUNT(*) c FROM recipes WHERE name IN ('Protein Pancakes','Shakshuka')")->fetch()['c'] < 2;
     ensure_cols($pdo, 'users', ['reset_token' => 'TEXT', 'reset_expires' => 'INTEGER', 'reset_requested' => 'INTEGER']);
     ensure_cols($pdo, 'biometrics', ['source' => "TEXT DEFAULT 'manual'"]);
     ensure_cols($pdo, 'workouts', ['source' => "TEXT DEFAULT 'manual'", 'ext_id' => 'TEXT']);
@@ -415,6 +415,30 @@ function seed_recipes(PDO $pdo): void {
         ['Zereshk Polo ba Morgh','dinner',55,520,35,55,14,3,"2 chicken pieces, braised with onion, turmeric & saffron|1 cup basmati|Barberries (zereshk) sautéed with a touch of honey|Pistachio slivers","Braise chicken until tender. Steam the rice; fold in the tart sautéed barberries. Serve chicken over the jeweled rice.",'🍚','balanced',1,1,0,'persian'],
         ['Salad Shirazi','snack',10,90,2,12,4,3,"Cucumber, tomato, red onion — finely diced|Lime juice, dried mint|1 tsp olive oil","Dice everything small and even. Dress with lime, mint and olive oil just before serving.",'🥗','balanced',1,1,1,'persian'],
         ['Mast-o-Khiar','snack',5,120,7,9,6,1,"200g Greek yogurt|1 cucumber, grated or diced|Dried mint, a few walnuts & raisins (optional)","Stir cucumber and mint into the yogurt. Top with walnuts. Cooling side for any kabab — or a snack on its own.",'🥒','lowcarb',1,1,1,'persian'],
+
+        // ── Quick & no-cook (≤15 min) — for busy days ──
+        ['Yogurt Protein Parfait','breakfast',5,320,25,30,10,4,"200g Greek yogurt|1/2 scoop whey|Handful berries|1 tbsp granola|Cinnamon","Layer yogurt whisked with whey, berries and a little granola. No cooking, 3 minutes.",'🥛','balanced',1,1,1],
+        ['Peanut Butter Banana Toast','breakfast',5,340,12,42,15,6,"1 slice whole-grain bread|1 tbsp peanut butter|1/2 banana|Chia seeds","Toast, spread peanut butter, add banana slices and a sprinkle of chia.",'🍌','balanced',1,1,0],
+        ['Cottage Cheese Bowl','breakfast',3,260,26,14,10,2,"200g cottage cheese|Cherry tomatoes|Cucumber|Black pepper, olive oil","Spoon cottage cheese into a bowl, top with chopped veg, pepper and a drizzle of oil.",'🧀','lowcarb',1,1,1],
+        ['Smoked Salmon Plate','lunch',5,340,28,4,23,1,"120g smoked salmon|1/2 avocado|Cucumber, capers|Lemon","Fan the salmon and avocado on a plate with cucumber, capers and lemon. Zero cooking.",'🐟','keto',1,0,1],
+        ['Chicken Caesar Wrap','lunch',8,430,34,32,18,3,"1 whole-wheat tortilla|120g cooked/rotisserie chicken|Romaine|1 tbsp Caesar|Parmesan","Toss chicken and lettuce with dressing, roll in the tortilla with parmesan. Uses pre-cooked chicken.",'🌯','balanced',1,0,1],
+        ['Tuna Cucumber Boats','lunch',8,280,26,8,15,2,"1 can tuna|2 tbsp mayo|1 large cucumber|Dill, lemon","Mix tuna with mayo, dill and lemon. Halve the cucumber, scoop, and fill.",'🥒','keto',1,1,1],
+        ['Caprese Avocado Bowl','lunch',7,360,14,12,29,5,"1/2 avocado|100g mozzarella|Tomatoes|Basil|Olive oil, balsamic","Cube avocado, mozzarella and tomato, toss with basil, oil and balsamic.",'🥑','lowcarb',1,1,1],
+        ['Hummus & Egg Plate','snack',5,300,15,20,18,7,"3 tbsp hummus|2 boiled eggs|Carrot & pepper sticks|Olive oil","Arrange hummus, halved eggs and veg sticks. Grab-and-go protein snack.",'🥚','balanced',1,1,1],
+        ['Trail Mix Cup','snack',2,240,7,16,18,4,"Almonds, walnuts|Pumpkin seeds|A few dark chocolate chips|Dried berries","Combine in a cup. Portion once, snack all week.",'🥜','keto',1,1,0],
+        ['Apple Nachos','snack',5,230,6,30,11,6,"1 apple, sliced|1 tbsp almond butter|Cinnamon|Few crushed nuts","Fan apple slices, drizzle almond butter, dust cinnamon and nuts.",'🍏','balanced',1,1,0],
+
+        // ── Balanced & world flavors (more variety) ──
+        ['Teriyaki Salmon Bowl','dinner',25,520,38,45,18,4,"180g salmon|Brown rice|Broccoli & edamame|Low-sodium teriyaki|Sesame","Bake salmon with a light teriyaki glaze; serve over rice with steamed greens.",'🍣','balanced',1,0,1],
+        ['Chicken Tikka & Cauli Rice','dinner',35,480,42,20,26,5,"200g chicken thigh|Yogurt-tikka marinade|Riced cauliflower|Onion, tomato","Marinate chicken in spiced yogurt, roast or pan-cook; serve over sautéed cauliflower rice.",'🍛','lowcarb',1,0,1],
+        ['Black Bean Quesadilla','lunch',15,420,18,52,15,11,"1 whole-wheat tortilla|Black beans|30g cheese|Salsa, peppers","Mash beans onto the tortilla with cheese and peppers, fold and toast until crisp.",'🫓','balanced',1,0,1],
+        ['Shakshuka','dinner',25,340,18,18,20,5,"3 eggs|Tomatoes, onion, pepper|Garlic, paprika, cumin|Parsley","Simmer a spiced tomato-pepper sauce, crack in the eggs and cook until just set. Scoop with bread.",'🍅','balanced',1,1,1],
+        ['Thai Basil Chicken','dinner',20,440,34,22,24,3,"180g ground chicken|Thai basil, garlic, chili|Green beans|Low-sodium fish/soy sauce","Stir-fry chicken with garlic and chili, toss in beans and basil. Serve over a little rice or on its own.",'🌶️','lowcarb',1,0,1],
+        ['Turkey Meatball Soup','dinner',35,360,30,24,14,5,"200g lean turkey meatballs|Spinach, carrot, celery|Low-sodium broth|Herbs","Simmer vegetables in broth, drop in seasoned turkey meatballs, cook through. Cozy and light.",'🍲','balanced',1,1,1],
+        ['Falafel Bowl','lunch',30,460,16,54,20,12,"Baked falafel|Quinoa or greens|Cucumber-tomato|Tahini, lemon","Bake falafel, serve over quinoa or greens with chopped salad and a tahini-lemon drizzle.",'🧆','balanced',1,1,1],
+        ['Egg Roll in a Bowl','dinner',20,380,28,14,24,4,"200g ground pork or turkey|Coleslaw mix|Garlic, ginger|Low-sodium soy, sesame","Brown the meat with garlic and ginger, add slaw and sauce, stir-fry until tender. All the flavor, no wrapper.",'🥢','keto',1,0,1],
+        ['Baked Feta Pasta (light)','dinner',40,480,18,60,18,5,"Cherry tomatoes|100g feta|Whole-wheat pasta|Garlic, olive oil, basil","Roast tomatoes and feta with garlic and oil, mash into a sauce, toss with pasta and basil.",'🍝','balanced',1,0,0],
+        ['Stuffed Sweet Potato','dinner',45,420,20,52,14,9,"1 sweet potato|Black beans|Greek yogurt|Salsa, scallion, cheese","Bake the sweet potato, split and load with warm beans, a dollop of yogurt, salsa and cheese.",'🍠','balanced',1,1,1],
     ];
     $st = $pdo->prepare("INSERT INTO recipes (name,tag,minutes,kcal,protein,carbs,fat,fiber,ingredients,instructions,emoji,diet,heart,lowsodium,diabetic,cuisine) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     foreach ($recipes as $r) $st->execute(array_pad($r, 16, ''));
