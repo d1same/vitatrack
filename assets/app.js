@@ -1859,14 +1859,21 @@ async function renderRecipes() {
   const condOk = r => !S._recipeSafe || !conds.length || conds.every(c => recipeOkForCondition(r, c));
   const isFav = r => S.recipeFavs.has(r.name);
   const cuisines = [...new Set(S.recipes.map(r => r.cuisine).filter(Boolean))];
-  let list = S.recipes.filter(r => (tag === 'all' || r.tag === tag) && dietOk(r) && condOk(r));
-  if (S._recipeCuisine) list = list.filter(r => r.cuisine === S._recipeCuisine);
-  if (S._recipeFavOnly) list = list.filter(isFav);
-  list = [...list.filter(isFav), ...list.filter(r => !isFav(r))]; // favorites first
+
+  // list = chip filters + free-text search (name / diet / cuisine / ingredients), favorites first
+  const buildList = () => {
+    const q = (S._recipeQ || '').trim().toLowerCase();
+    let l = S.recipes.filter(r => (tag === 'all' || r.tag === tag) && dietOk(r) && condOk(r));
+    if (S._recipeCuisine) l = l.filter(r => r.cuisine === S._recipeCuisine);
+    if (S._recipeFavOnly) l = l.filter(isFav);
+    if (q) l = l.filter(r => (r.name + ' ' + r.diet + ' ' + (r.cuisine || '') + ' ' + r.tag + ' ' + (r.ingredients || '')).toLowerCase().includes(q));
+    return [...l.filter(isFav), ...l.filter(r => !isFav(r))];
+  };
 
   shell(`<div class="screen">
     <div class="screen-header"><div><div class="screen-title">Recipes</div>
       <div class="screen-sub">${S.recipes.length} recipes, macro-counted</div></div></div>
+    <div class="field" style="margin-bottom:10px"><input id="recipeSearch" placeholder="Search recipes… (name or ingredient)" value="${esc(S._recipeQ || '')}" autocomplete="off"></div>
     <div class="seg" style="margin-bottom:10px" id="dietSeg">
       ${[['all', 'All'], ['keto', 'Keto'], ['lowcarb', 'Low-carb'], ['balanced', 'Balanced']].map(([v, l]) =>
         `<button data-diet="${v}" class="${S._recipeDiet === v ? 'on' : ''}">${l}</button>`).join('')}
@@ -1877,15 +1884,30 @@ async function renderRecipes() {
       <button class="chip ${S._recipeFavOnly ? 'on' : ''}" id="favChip">${ic('heart', 13)} Favorites${S.recipeFavs.size ? ' (' + S.recipeFavs.size + ')' : ''}</button>
       ${cuisines.map(c => `<button class="chip ${S._recipeCuisine === c ? 'on' : ''}" data-cuisine="${c}">${c[0].toUpperCase() + c.slice(1)}</button>`).join('')}
     </div>
-    ${list.map(r => `<div class="list-item" data-r="${r.id}">
-      <div class="em">${r.emoji}</div>
-      <div class="grow"><h4>${esc(r.name)}</h4>
-        <div class="meta">⏱ ${r.minutes} min · ${Math.round(r.kcal)} kcal · P${Math.round(r.protein)} C${Math.round(r.carbs)} F${Math.round(r.fat)}</div>
-        ${recipeBadges(r, conds)}</div>
-      <button class="mini-act fav-btn ${isFav(r) ? 'faved' : ''}" data-fav="${esc(r.name)}" title="Favorite">${ic('heart', 15)}</button>
-    </div>`).join('')
-      || `<div class="empty"><div class="em">${ic('chefhat', 34)}</div>${S._recipeFavOnly ? 'No favorites yet — tap the heart on any recipe.' : 'No recipes match these filters — try All or turn off a filter.'}</div>`}
+    <div id="recipeList"></div>
   </div>`);
+
+  const renderList = () => {
+    const list = buildList();
+    $('#recipeList').innerHTML = list.map(r => `<div class="list-item" data-r="${r.id}">
+        <div class="em">${r.emoji}</div>
+        <div class="grow"><h4>${esc(r.name)}</h4>
+          <div class="meta">⏱ ${r.minutes} min · ${Math.round(r.kcal)} kcal · P${Math.round(r.protein)} C${Math.round(r.carbs)} F${Math.round(r.fat)}</div>
+          ${recipeBadges(r, conds)}</div>
+        <button class="mini-act fav-btn ${isFav(r) ? 'faved' : ''}" data-fav="${esc(r.name)}" title="Favorite">${ic('heart', 15)}</button>
+      </div>`).join('')
+      || `<div class="empty"><div class="em">${ic('chefhat', 34)}</div>${S._recipeQ ? 'No recipe matches “' + esc(S._recipeQ) + '”.' : S._recipeFavOnly ? 'No favorites yet — tap the heart on any recipe.' : 'No recipes match these filters — try All or turn off a filter.'}</div>`;
+    $('#recipeList').querySelectorAll('[data-fav]').forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      const on = await toggleFavRecipe(b.dataset.fav);
+      b.classList.toggle('faved', on);
+    });
+    $('#recipeList').querySelectorAll('[data-r]').forEach(b => b.onclick = () => openRecipe(+b.dataset.r));
+  };
+  renderList();
+
+  // search filters live without a full re-render (keeps focus/keyboard)
+  $('#recipeSearch').addEventListener('input', e => { S._recipeQ = e.target.value; renderList(); });
   document.querySelectorAll('[data-diet]').forEach(b => b.onclick = () => { S._recipeDiet = b.dataset.diet; render(); });
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { S._recipeTag = b.dataset.t; render(); });
   const sc = $('#safeChip');
@@ -1894,12 +1916,6 @@ async function renderRecipes() {
   document.querySelectorAll('[data-cuisine]').forEach(b => b.onclick = () => {
     S._recipeCuisine = S._recipeCuisine === b.dataset.cuisine ? '' : b.dataset.cuisine; render();
   });
-  document.querySelectorAll('[data-fav]').forEach(b => b.onclick = async e => {
-    e.stopPropagation();
-    const on = await toggleFavRecipe(b.dataset.fav);
-    b.classList.toggle('faved', on);
-  });
-  document.querySelectorAll('[data-r]').forEach(b => b.onclick = () => openRecipe(+b.dataset.r));
 }
 window.openRecipe = async id => {
   await loadRecipes();
