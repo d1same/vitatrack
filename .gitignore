@@ -10,3 +10,6 @@ data/*
 # NEVER commit android.keystore / keystore-password.txt (signing identity).
 android-app/*
 !android-app/twa-manifest.json
+
+# APK v4 signature (not needed for download-install)
+*.apk.idsig

@@ -61,15 +61,21 @@ runs on any cPanel shared host with zero configuration.
 Reminders now arrive via Web Push even when the app isn't running.
 (iPhone requires the app installed to the home screen, iOS 16.4+.)
 
-### 🤖 Android app (Play-Store-style package)
-The app is a PWA, so Android can wrap it into a real APK with zero code changes:
-1. Go to **pwabuilder.com**, enter your site URL, click **Package for Stores → Android**.
-2. Download the package — you get a signed `.apk` (sideload onto any phone) and an
-   `.aab` (for the Play Store, $25 one-time developer account).
-3. PWABuilder shows a **Digital Asset Links** snippet (`assetlinks.json`) with your
-   signing-key fingerprint — upload it to `.well-known/assetlinks.json` on your site
-   to remove the browser bar so it looks 100% native.
-The Android app shares the same server, accounts, and background notifications.
+### 🤖 Android app
+A signed, installable **`vitatrack.apk`** ships in this repo (and deploys to your
+site root, e.g. `https://your-site/vitatrack.apk`). To install: open that URL on an
+Android phone, download, and allow "install from this source." It's a TWA — the
+same VitaTrack web app in a native shell, sharing your server, accounts, and
+background notifications. The matching `.well-known/assetlinks.json` (already
+deployed) validates the signing key so the browser address bar is hidden and it
+looks 100% native.
+
+- **Rebuild it** (after a key change or to bump the version): the Bubblewrap
+  project is in `android-app/` — `bubblewrap build`, then sign. The signing
+  **`android.keystore` is gitignored — keep your own copy forever**; it's the
+  app's permanent identity and Play Store won't accept a different one later.
+- **Play Store** (optional, $25 one-time): build an `.aab` and upload; the same
+  keystore signs it.
 
 ### ❤️ Health Connect sync (steps, workouts, sleep, heart rate)
 The server can ingest health data from **Google Health Connect** — which aggregates
