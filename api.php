@@ -367,6 +367,73 @@ case 'del_bio': {
     out(['ok' => true]);
 }
 
+// ── Health-platform sync (Health Connect, Apple Health, rings…) ──────
+// A single, source-agnostic ingestion endpoint. Any connector — the Health
+// Connect Android companion, a future HealthKit app, an Oura puller — POSTs
+// the same normalized shape here. Idempotent: re-syncing a day replaces its
+// values rather than duplicating them.
+case 'sync_health': {
+    $uid = require_user();
+    $source = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($in['source'] ?? 'health_connect'))) ?: 'health_connect';
+    $types = ['bp','glucose','ketones','rhr','sleep','steps'];
+    $metrics = is_array($in['metrics'] ?? null) ? $in['metrics'] : [];
+    $workouts = is_array($in['workouts'] ?? null) ? $in['workouts'] : [];
+    $isDate = fn($d) => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$d);
+
+    $pdo = db();
+    $pdo->beginTransaction();
+    $mCount = 0; $wCount = 0;
+
+    $delBio = $pdo->prepare("DELETE FROM biometrics WHERE user_id=? AND date=? AND type=? AND source=?");
+    $insBio = $pdo->prepare("INSERT INTO biometrics (user_id,date,type,v1,v2,source) VALUES (?,?,?,?,?,?)");
+    $upsWeight = $pdo->prepare("INSERT INTO weights (user_id,date,weight_kg,body_fat) VALUES (?,?,?,?)
+        ON CONFLICT(user_id,date) DO UPDATE SET weight_kg=excluded.weight_kg");
+
+    foreach (array_slice($metrics, 0, 2000) as $m) {
+        $date = $m['date'] ?? '';
+        if (!$isDate($date)) continue;
+        $type = strtolower((string)($m['type'] ?? ''));
+        $v1 = (float)($m['value'] ?? $m['v1'] ?? 0);
+        if ($type === 'weight') { if ($v1 > 0) { $upsWeight->execute([$uid, $date, round($v1, 2), null]); $mCount++; } continue; }
+        if (!in_array($type, $types, true) || $v1 <= 0) continue;
+        $v2 = isset($m['value2']) && $m['value2'] !== '' ? (float)$m['value2'] : (isset($m['v2']) && $m['v2'] !== '' ? (float)$m['v2'] : null);
+        // one synced value per (day,type,source) — replace on re-sync
+        $delBio->execute([$uid, $date, $type, $source]);
+        $insBio->execute([$uid, $date, $type, round($v1, 2), $v2, $source]);
+        $mCount++;
+    }
+
+    $insWork = $pdo->prepare("INSERT INTO workouts (user_id,date,name,minutes,kcal,source,ext_id) VALUES (?,?,?,?,?,?,?)");
+    $findWork = $pdo->prepare("SELECT id FROM workouts WHERE user_id=? AND source=? AND ext_id=?");
+    foreach (array_slice($workouts, 0, 500) as $w) {
+        $date = $w['date'] ?? '';
+        if (!$isDate($date)) continue;
+        $ext = isset($w['ext_id']) ? substr((string)$w['ext_id'], 0, 80) : null;
+        if ($ext !== null) { $findWork->execute([$uid, $source, $ext]); if ($findWork->fetch()) continue; } // already imported
+        $insWork->execute([$uid, $date, substr((string)($w['name'] ?? 'Activity'), 0, 80),
+            round((float)($w['minutes'] ?? 0), 1), round((float)($w['kcal'] ?? 0)), $source, $ext]);
+        $wCount++;
+    }
+
+    $pdo->prepare("INSERT INTO settings (user_id,key,value) VALUES (?,?,?)
+        ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value")
+      ->execute([$uid, 'sync_last_' . $source, gmdate('c')]);
+    $pdo->commit();
+    out(['ok' => true, 'metrics_synced' => $mCount, 'workouts_synced' => $wCount]);
+}
+
+case 'sync_status': {
+    $uid = require_user();
+    $st = db()->prepare("SELECT key, value FROM settings WHERE user_id=? AND key LIKE 'sync_last_%'");
+    $st->execute([$uid]);
+    $sources = [];
+    foreach ($st->fetchAll() as $r) $sources[substr($r['key'], 10)] = $r['value'];
+    $st = db()->prepare("SELECT COUNT(*) c FROM biometrics WHERE user_id=? AND source != 'manual'");
+    $st->execute([$uid]);
+    $syncedMetrics = (int)$st->fetch()['c'];
+    out(['ok' => true, 'sources' => $sources, 'synced_metrics' => $syncedMetrics]);
+}
+
 // ── Daily lessons (drip course) ──────────────────────────────────────
 case 'lessons': {
     $uid = require_user();

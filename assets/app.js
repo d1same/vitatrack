@@ -1782,6 +1782,12 @@ async function renderSettings() {
     </div>
 
     <div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--red-soft);color:var(--red)">${ic('heartpulse', 16)}</span>Health sync</div>
+      <div class="muted" style="margin-bottom:10px">Auto-sync steps, workouts, sleep and heart rate from <b>Health Connect</b> — which gathers data from Samsung Health, your ring or watch, and most Android fitness apps. Install the VitaTrack Android app, allow Health Connect access, and your data flows into Progress automatically.</div>
+      <div id="syncStatus" class="tiny">Checking sync status…</div>
+    </div>
+
+    <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--orange-soft);color:var(--orange)">${ic('sparkle', 16)}</span>AI photo scan</div>
       <div class="muted" style="margin-bottom:10px">Powers the food photo analysis — the provider is auto-detected from your key:<br>
         · <b>Ollama Cloud</b> — free tier (ollama.com → sign up → Settings → Keys)<br>
@@ -1906,6 +1912,16 @@ async function renderSettings() {
     await api('save_settings', { anthropic_key: v });
     toast('API key saved'); render();
   };
+  api('sync_status').then(r => {
+    const el = $('#syncStatus'); if (!el || !r.ok) return;
+    const srcs = Object.entries(r.sources || {});
+    if (!srcs.length) { el.textContent = 'Not synced yet — connect Health Connect in the Android app.'; return; }
+    const nice = { health_connect: 'Health Connect', apple_health: 'Apple Health', oura: 'Oura' };
+    el.innerHTML = srcs.map(([s, t]) => {
+      const when = new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `<span style="color:var(--accent)">✓</span> Last synced from <b>${nice[s] || esc(s)}</b>: ${when}`;
+    }).join('<br>') + `<br>${r.synced_metrics} synced data points — view them in Progress → Health metrics.`;
+  });
   $('#sExport').onclick = async () => {
     const r = await api('export_data');
     if (!r.ok) return toast(r.error || 'Export failed');

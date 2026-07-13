@@ -71,6 +71,14 @@ The app is a PWA, so Android can wrap it into a real APK with zero code changes:
    to remove the browser bar so it looks 100% native.
 The Android app shares the same server, accounts, and background notifications.
 
+### ❤️ Health Connect sync (steps, workouts, sleep, heart rate)
+The server can ingest health data from **Google Health Connect** — which aggregates
+Samsung Health, rings, watches and most Android fitness apps — via a single
+normalized endpoint (`sync_health`). The ingestion side is built and tested; the
+native Android reader is a documented, buildable spec (needs a device + Play review).
+See **[HEALTHCONNECT.md](HEALTHCONNECT.md)**. The same contract also fits an Apple
+HealthKit companion or a server-side Oura puller.
+
 ## 🔄 Updating
 Upload the new files over the old ones. **Never overwrite the `data/` folder** — that's
 where all user data lives. Back it up by downloading `data/health.sqlite` occasionally.

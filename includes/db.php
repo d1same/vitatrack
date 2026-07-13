@@ -32,7 +32,7 @@ function ensure_cols(PDO $pdo, string $table, array $cols): bool {
     return $added;
 }
 
-const SCHEMA_VERSION = 18; // bump when schema or seed content changes
+const SCHEMA_VERSION = 19; // bump when schema or seed content changes
 
 function init_schema(PDO $pdo): void {
     // Fast path: schema already current — skip all migration/seed checks
@@ -115,7 +115,9 @@ function init_schema(PDO $pdo): void {
         date TEXT NOT NULL,
         name TEXT NOT NULL,
         minutes REAL DEFAULT 30,
-        kcal REAL DEFAULT 0
+        kcal REAL DEFAULT 0,
+        source TEXT DEFAULT 'manual',
+        ext_id TEXT
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -152,7 +154,8 @@ function init_schema(PDO $pdo): void {
         date TEXT NOT NULL,
         type TEXT NOT NULL,
         v1 REAL NOT NULL,
-        v2 REAL
+        v2 REAL,
+        source TEXT DEFAULT 'manual'
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS lessons (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,6 +195,8 @@ function init_schema(PDO $pdo): void {
     $foodsUpgraded = $foodsUpgraded || $pdo->query("SELECT COUNT(*) c FROM foods WHERE user_id IS NULL AND name LIKE 'Ghormeh%'")->fetch()['c'] == 0;
     $recipesUpgraded = $recipesUpgraded || $pdo->query("SELECT COUNT(*) c FROM recipes WHERE name='Protein Pancakes'")->fetch()['c'] == 0;
     ensure_cols($pdo, 'users', ['reset_token' => 'TEXT', 'reset_expires' => 'INTEGER', 'reset_requested' => 'INTEGER']);
+    ensure_cols($pdo, 'biometrics', ['source' => "TEXT DEFAULT 'manual'"]);
+    ensure_cols($pdo, 'workouts', ['source' => "TEXT DEFAULT 'manual'", 'ext_id' => 'TEXT']);
 
     seed($pdo, $foodsUpgraded, $recipesUpgraded);
     $pdo->exec('PRAGMA user_version = ' . SCHEMA_VERSION);
