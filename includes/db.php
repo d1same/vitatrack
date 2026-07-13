@@ -32,7 +32,7 @@ function ensure_cols(PDO $pdo, string $table, array $cols): bool {
     return $added;
 }
 
-const SCHEMA_VERSION = 21; // bump when schema or seed content changes
+const SCHEMA_VERSION = 22; // bump when schema or seed content changes
 
 function init_schema(PDO $pdo): void {
     // Fast path: schema already current — skip all migration/seed checks
@@ -134,7 +134,8 @@ function init_schema(PDO $pdo): void {
         heart INTEGER DEFAULT 0,      -- heart/cholesterol-friendly (low sat fat)
         lowsodium INTEGER DEFAULT 0,  -- blood-pressure-friendly
         diabetic INTEGER DEFAULT 0,   -- low sugar, moderate carbs
-        cuisine TEXT DEFAULT ''
+        cuisine TEXT DEFAULT '',
+        veg INTEGER DEFAULT 0         -- 0 omnivore, 1 vegetarian, 2 vegan
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS exercises (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -204,9 +205,9 @@ function init_schema(PDO $pdo): void {
     $foodsUpgraded = ensure_cols($pdo, 'foods', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
     ensure_cols($pdo, 'foods', ['serving_g' => 'REAL', 'serving_label' => 'TEXT']);
     ensure_cols($pdo, 'diary', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
-    $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0', 'cuisine' => "TEXT DEFAULT ''"]);
+    $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0', 'cuisine' => "TEXT DEFAULT ''", 'veg' => 'INTEGER DEFAULT 0']);
     $foodsUpgraded = $foodsUpgraded || $pdo->query("SELECT COUNT(*) c FROM foods WHERE user_id IS NULL AND name LIKE 'Ghormeh%'")->fetch()['c'] == 0;
-    $recipesUpgraded = $recipesUpgraded || $pdo->query("SELECT COUNT(*) c FROM recipes WHERE name IN ('Protein Pancakes','Shakshuka')")->fetch()['c'] < 2;
+    $recipesUpgraded = $recipesUpgraded || $pdo->query("SELECT COUNT(*) c FROM recipes WHERE name IN ('Protein Pancakes','Shakshuka','Chana Masala')")->fetch()['c'] < 3;
     ensure_cols($pdo, 'users', ['reset_token' => 'TEXT', 'reset_expires' => 'INTEGER', 'reset_requested' => 'INTEGER']);
     ensure_cols($pdo, 'biometrics', ['source' => "TEXT DEFAULT 'manual'"]);
     ensure_cols($pdo, 'workouts', ['source' => "TEXT DEFAULT 'manual'", 'ext_id' => 'TEXT']);
@@ -439,9 +440,64 @@ function seed_recipes(PDO $pdo): void {
         ['Egg Roll in a Bowl','dinner',20,380,28,14,24,4,"200g ground pork or turkey|Coleslaw mix|Garlic, ginger|Low-sodium soy, sesame","Brown the meat with garlic and ginger, add slaw and sauce, stir-fry until tender. All the flavor, no wrapper.",'🥢','keto',1,0,1],
         ['Baked Feta Pasta (light)','dinner',40,480,18,60,18,5,"Cherry tomatoes|100g feta|Whole-wheat pasta|Garlic, olive oil, basil","Roast tomatoes and feta with garlic and oil, mash into a sauce, toss with pasta and basil.",'🍝','balanced',1,0,0],
         ['Stuffed Sweet Potato','dinner',45,420,20,52,14,9,"1 sweet potato|Black beans|Greek yogurt|Salsa, scallion, cheese","Bake the sweet potato, split and load with warm beans, a dollop of yogurt, salsa and cheese.",'🍠','balanced',1,1,1],
+
+        // ── Mexican ──
+        ['Veggie Burrito Bowl','lunch',20,430,15,58,15,14,"Black beans|Brown rice|Corn, peppers, onion|Avocado, salsa, lime|Cilantro","Warm beans and rice, pile with sautéed peppers, corn, avocado and salsa. Squeeze lime over.",'🌯','balanced',1,1,1,'mexican'],
+        ['Chicken Fajita Bowl','dinner',25,470,38,30,20,6,"180g chicken breast|Bell peppers & onion|Fajita spices|Cauliflower rice or rice|Guacamole","Sear spiced chicken and peppers. Serve over rice or cauliflower rice with a scoop of guac.",'🫑','balanced',1,1,1,'mexican'],
+        ['Black Bean & Sweet Potato Tacos','dinner',30,410,14,60,13,15,"Corn tortillas|Roasted sweet potato|Black beans|Slaw, lime crema|Cilantro","Roast sweet potato cubes, warm the beans, load tortillas with slaw and a lime-crema drizzle.",'🌮','balanced',1,1,1,'mexican'],
+        ['Shrimp Ceviche','lunch',20,220,26,10,7,3,"200g shrimp|Lime & lemon juice|Tomato, cucumber, onion|Cilantro, jalapeño|Avocado","Cook shrimp gently, chill in citrus with the chopped veg. Serve cold with avocado — no oven needed.",'🍤','lowcarb',1,1,1,'mexican'],
+
+        // ── Italian ──
+        ['Minestrone Soup','lunch',40,290,12,45,7,11,"White beans|Zucchini, carrot, celery, tomato|Small pasta|Low-sodium broth|Basil, olive oil","Sauté the vegetables, add tomato, broth and beans; simmer 25 min, add pasta for the last 10.",'🍲','balanced',1,1,1,'italian'],
+        ['Zucchini Lasagna','dinner',50,380,26,18,22,4,"Zucchini planks|Ground turkey or lentils|Ricotta, mozzarella|Marinara, basil","Layer zucchini planks with sauce, protein and cheese instead of pasta. Bake 30 min at 190°C.",'🍆','lowcarb',1,0,1,'italian'],
+        ['Pesto Chicken & Veg','dinner',25,490,40,14,30,4,"180g chicken breast|2 tbsp pesto|Cherry tomatoes|Green beans|Parmesan","Sear chicken, toss with pesto, roast tomatoes and beans alongside. Shave parmesan on top.",'🌿','lowcarb',1,0,1,'italian'],
+        ['Caprese Chicken','dinner',25,440,42,8,26,2,"180g chicken breast|Fresh mozzarella|Tomato slices|Basil, balsamic glaze","Pan-cook the chicken, top with mozzarella and tomato until melty, finish with basil and balsamic.",'🍅','lowcarb',1,1,1,'italian'],
+
+        // ── Indian ──
+        ['Chana Masala','dinner',35,360,14,52,10,14,"Chickpeas|Onion, tomato, garlic, ginger|Garam masala, cumin, turmeric|Cilantro","Simmer a spiced onion-tomato base, add chickpeas and cook 20 min. Serve with a little rice or on its own.",'🍛','balanced',1,1,1,'indian'],
+        ['Chicken Tikka Masala (lighter)','dinner',40,480,40,22,26,4,"200g chicken thigh|Yogurt marinade|Tomato-cream sauce|Garam masala|Cilantro","Grill marinated chicken, simmer in a light tomato sauce with a splash of cream. Serve with rice.",'🍗','balanced',1,0,1,'indian'],
+        ['Palak Paneer','dinner',35,380,18,16,26,5,"Paneer|Spinach purée|Onion, garlic, ginger|Garam masala|A little cream","Cook down spiced spinach with aromatics, fold in cubes of paneer. Rich, green and vegetarian.",'🥬','lowcarb',1,1,1,'indian'],
+        ['Dal Tadka','lunch',35,300,16,44,5,12,"Red lentils|Onion, tomato, garlic|Cumin, turmeric, chili|Cilantro","Simmer lentils until soft, temper with cumin and garlic in a little oil, pour over. Comforting and vegan.",'🍲','balanced',1,1,1,'indian'],
+
+        // ── Mediterranean ──
+        ['Greek Chickpea Salad','lunch',15,410,15,42,20,11,"Chickpeas|Cucumber, tomato, red onion|Feta, olives|Olive oil, oregano, lemon","Toss everything together and dress with oil, lemon and oregano. Hearty, cold, no cooking.",'🥗','balanced',1,0,1,'mediterranean'],
+        ['Grilled Halloumi Bowl','lunch',20,450,22,28,28,7,"Halloumi|Quinoa or greens|Roasted peppers, cucumber|Olive oil, lemon, mint","Grill halloumi slices, serve over quinoa or greens with roasted peppers and a lemon-mint drizzle.",'🧀','lowcarb',1,0,1,'mediterranean'],
+        ['Lemon Herb Chicken & Orzo','dinner',30,510,40,45,18,4,"180g chicken breast|Orzo|Spinach, cherry tomatoes|Lemon, oregano, olive oil","Cook orzo, sear lemon-oregano chicken, toss with wilted spinach and tomatoes.",'🍋','balanced',1,0,1,'mediterranean'],
+        ['Baba Ganoush Plate','snack',30,240,6,18,17,7,"2 roasted eggplants|Tahini, garlic, lemon|Olive oil|Veg sticks or pita","Blend smoky roasted eggplant with tahini, garlic and lemon. Scoop with veg sticks. Vegan and cooling.",'🍆','lowcarb',1,1,1,'mediterranean'],
+
+        // ── Asian ──
+        ['Tofu Veggie Stir-Fry','dinner',20,360,20,26,18,6,"Firm tofu|Broccoli, pepper, snap peas|Garlic, ginger|Low-sodium soy, sesame oil","Crisp the tofu, stir-fry vegetables with garlic and ginger, toss everything in a light soy-sesame sauce.",'🥦','balanced',1,0,1,'asian'],
+        ['Miso Salmon','dinner',25,470,36,16,28,2,"180g salmon|Miso-ginger glaze|Bok choy|Sesame seeds","Brush salmon with miso glaze and roast; steam bok choy alongside. Umami-rich and light.",'🐟','lowcarb',1,0,1,'asian'],
+        ['Vegetable Fried Rice','dinner',20,390,12,58,12,5,"Day-old rice|Peas, carrot, corn, scallion|1 egg (omit for vegan)|Low-sodium soy, sesame","Stir-fry the veg, push aside and scramble the egg, add rice on high heat with soy and sesame.",'🍚','balanced',1,0,1,'asian'],
+        ['Edamame Buddha Bowl','lunch',15,420,20,46,18,11,"Edamame|Brown rice or quinoa|Shredded carrot, cucumber, avocado|Sesame-ginger dressing","Build a bowl of grains, edamame and crunchy veg, drizzle with sesame-ginger dressing. No cooking beyond the grains.",'🥢','balanced',1,1,1,'asian'],
+
+        // ── More vegetarian breakfasts & snacks ──
+        ['Spinach & Feta Omelet','breakfast',12,300,20,6,22,2,"3 eggs|Handful spinach|30g feta|Olive oil, pepper","Wilt spinach in a little oil, pour in beaten eggs, add feta and fold. Fast, vegetarian, low-carb.",'🍳','lowcarb',1,1,1,''],
+        ['Chickpea Flour Scramble','breakfast',15,290,15,32,11,7,"Chickpea (besan) flour|Turmeric, black salt|Spinach, tomato, onion|Olive oil","Whisk chickpea flour with water and spices, cook like a scramble with the veg. High-protein vegan breakfast.",'🍳','balanced',1,1,1,'indian'],
+        ['Greek Yogurt & Honey Bark','snack',5,200,14,20,6,1,"200g Greek yogurt|Drizzle honey|Berries, chopped nuts","Spread yogurt thin, top with berries and nuts, freeze until firm, break into shards.",'🍨','balanced',1,1,0,''],
+        ['Edamame with Sea Salt','snack',8,190,17,14,8,8,"Edamame in pods|Sea salt|Chili flakes (optional)","Steam or boil edamame 5 min, toss with salt. High-protein vegan snack you can prep ahead.",'🫛','lowcarb',1,1,1,'asian'],
     ];
+
+    // Vegetarian / vegan tagging (2 = vegan, 1 = vegetarian) — applied after insert.
+    $vegan = ['Chia Coconut Pudding','Guacamole & Veggie Sticks','Salad Shirazi','Minestrone Soup','Chana Masala',
+        'Dal Tadka','Baba Ganoush Plate','Tofu Veggie Stir-Fry','Edamame Buddha Bowl','Chickpea Flour Scramble',
+        'Edamame with Sea Salt','Veggie Burrito Bowl','Black Bean & Sweet Potato Tacos','Crispy Roasted Chickpeas',
+        'Trail Mix Cup','Apple Nachos','Apple & Peanut Butter','Peanut Butter Banana Toast'];
+    $vegetarian = ['Keto Avocado Egg Boats','Cream Cheese Pancakes','Zucchini Noodle Alfredo','Egg Salad Lettuce Wraps',
+        'Cauliflower Fried "Rice"','Cheese Crisp Nachos','Fat Bomb Bites','Deviled Eggs','Keto Berry Smoothie',
+        'Overnight Oats with Berries','Veggie Egg-White Omelet','Avocado Toast with Egg','Apple Cinnamon Yogurt Bowl',
+        'Mediterranean Chickpea Salad','Lentil Soup','Cottage Cheese & Fruit Bowl','Caprese Salad','Kuku Sabzi',
+        'Mirza Ghasemi','Mast-o-Khiar','Yogurt Protein Parfait','Cottage Cheese Bowl','Caprese Avocado Bowl',
+        'Hummus & Egg Plate','Shakshuka','Falafel Bowl','Baked Feta Pasta (light)','Stuffed Sweet Potato',
+        'Protein Pancakes','Scrambled Eggs on Sourdough','Hummus Veggie Sandwich','Black Bean Quesadilla',
+        'Greek Chickpea Salad','Grilled Halloumi Bowl','Zucchini Lasagna','Palak Paneer','Vegetable Fried Rice',
+        'Spinach & Feta Omelet','Greek Yogurt & Honey Bark'];
     $st = $pdo->prepare("INSERT INTO recipes (name,tag,minutes,kcal,protein,carbs,fat,fiber,ingredients,instructions,emoji,diet,heart,lowsodium,diabetic,cuisine) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     foreach ($recipes as $r) $st->execute(array_pad($r, 16, ''));
+    // Vegetarian / vegan tagging by name (2 = vegan, 1 = vegetarian).
+    $vs = $pdo->prepare("UPDATE recipes SET veg=? WHERE name=?");
+    foreach ($vegetarian as $n) $vs->execute([1, $n]);
+    foreach ($vegan as $n) $vs->execute([2, $n]);
 }
 
 function seed_exercises(PDO $pdo): void {

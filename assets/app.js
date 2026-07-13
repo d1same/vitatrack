@@ -1611,11 +1611,14 @@ function generateWeekPlan() {
   const condOk = r => conds.every(c => recipeOkForCondition(r, c));
   const used = new Set();
   const maxMin = cookMax();
+  const vegPref = S.settings?.veg_plan === '1';
   const pickFor = slot => {
     let cand = S.recipes.filter(r => r.tag === slot && dietOk(r) && condOk(r));
     if (!cand.length) cand = S.recipes.filter(r => r.tag === slot && dietOk(r));   // relax conditions
     if (!cand.length) cand = S.recipes.filter(r => r.tag === slot);                // relax diet
     if (!cand.length) return null;
+    // soft vegetarian preference: keep meat-free recipes if any qualify, else fall back
+    if (vegPref) { const veg = cand.filter(r => +r.veg >= 1); if (veg.length) cand = veg; }
     // soft cook-time preference: keep quick recipes if any qualify, else fall back
     const quick = cand.filter(r => +r.minutes <= maxMin);
     if (quick.length) cand = quick;
@@ -1840,6 +1843,8 @@ const DIET_BADGE = { keto: ['Keto', 'green'], lowcarb: ['Low-carb', 'blue'], bal
 function recipeBadges(r, conds, all = false) {
   const [lbl, cls] = DIET_BADGE[r.diet] || ['', 'green'];
   let out = `<span class="badge ${cls}">${lbl}</span>`;
+  if (+r.veg === 2) out += '<span class="badge green">Vegan</span>';
+  else if (+r.veg === 1) out += '<span class="badge green">Vegetarian</span>';
   if (+r.heart) out += '<span class="badge green">Heart-smart</span>';
   if (+r.lowsodium && (all || conds.includes('hypertension'))) out += '<span class="badge blue">Low salt</span>';
   if (+r.diabetic && (all || conds.includes('diabetes'))) out += '<span class="badge purple">Low sugar</span>';
@@ -1864,6 +1869,7 @@ async function renderRecipes() {
   const buildList = () => {
     const q = (S._recipeQ || '').trim().toLowerCase();
     let l = S.recipes.filter(r => (tag === 'all' || r.tag === tag) && dietOk(r) && condOk(r));
+    if (S._recipeVeg) l = l.filter(r => +r.veg >= 1);
     if (S._recipeCuisine) l = l.filter(r => r.cuisine === S._recipeCuisine);
     if (S._recipeFavOnly) l = l.filter(isFav);
     if (q) l = l.filter(r => (r.name + ' ' + r.diet + ' ' + (r.cuisine || '') + ' ' + r.tag + ' ' + (r.ingredients || '')).toLowerCase().includes(q));
@@ -1881,6 +1887,7 @@ async function renderRecipes() {
     <div class="chips" style="margin-bottom:14px">${tags.map(t =>
       `<button class="chip ${t === tag ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
       ${conds.length ? `<button class="chip ${S._recipeSafe ? 'on' : ''}" id="safeChip">${ic('heartpulse', 13)} Safe for me</button>` : ''}
+      <button class="chip ${S._recipeVeg ? 'on' : ''}" id="vegChip">${ic('leaf', 13)} Veggie</button>
       <button class="chip ${S._recipeFavOnly ? 'on' : ''}" id="favChip">${ic('heart', 13)} Favorites${S.recipeFavs.size ? ' (' + S.recipeFavs.size + ')' : ''}</button>
       ${cuisines.map(c => `<button class="chip ${S._recipeCuisine === c ? 'on' : ''}" data-cuisine="${c}">${c[0].toUpperCase() + c.slice(1)}</button>`).join('')}
     </div>
@@ -1912,6 +1919,7 @@ async function renderRecipes() {
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { S._recipeTag = b.dataset.t; render(); });
   const sc = $('#safeChip');
   if (sc) sc.onclick = () => { S._recipeSafe = !S._recipeSafe; render(); };
+  $('#vegChip').onclick = () => { S._recipeVeg = !S._recipeVeg; render(); };
   $('#favChip').onclick = () => { S._recipeFavOnly = !S._recipeFavOnly; render(); };
   document.querySelectorAll('[data-cuisine]').forEach(b => b.onclick = () => {
     S._recipeCuisine = S._recipeCuisine === b.dataset.cuisine ? '' : b.dataset.cuisine; render();
@@ -2033,10 +2041,15 @@ async function renderSettings() {
         <div class="seg" id="segGlass">
           ${glassOptions().map(([v, lbl]) => `<button data-glass="${v}" class="${glassMl() === v ? 'on' : ''}">${lbl}</button>`).join('')}
         </div></div>
-      <div class="field" style="margin-bottom:0"><label>Cooking time — how involved your planned meals are</label>
+      <div class="field"><label>Cooking time — how involved your planned meals are</label>
         <div class="seg" id="segCook">
           ${[['quick', 'Quick ≤20m'], ['medium', 'Medium'], ['any', 'Any']].map(([v, lbl]) =>
             `<button data-cook="${v}" class="${(st.cook_time || 'any') === v ? 'on' : ''}">${lbl}</button>`).join('')}
+        </div></div>
+      <div class="field" style="margin-bottom:0"><label>Vegetarian meal plans — prefer meat-free recipes</label>
+        <div class="seg" id="segVeg">
+          ${[['0', 'Off'], ['1', 'On']].map(([v, lbl]) =>
+            `<button data-veg="${v}" class="${(st.veg_plan || '0') === v ? 'on' : ''}">${lbl}</button>`).join('')}
         </div></div>
     </div>
 
@@ -2113,6 +2126,10 @@ async function renderSettings() {
   $('#segCook').querySelectorAll('button').forEach(b => b.onclick = async () => {
     S.settings.cook_time = b.dataset.cook;
     await api('save_settings', { cook_time: b.dataset.cook }); render();
+  });
+  $('#segVeg').querySelectorAll('button').forEach(b => b.onclick = async () => {
+    S.settings.veg_plan = b.dataset.veg;
+    await api('save_settings', { veg_plan: b.dataset.veg }); render();
   });
   document.querySelectorAll('[data-rem]').forEach(cb => cb.onchange = async () => {
     if (cb.checked && 'Notification' in window && Notification.permission === 'default') {
