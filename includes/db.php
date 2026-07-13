@@ -32,7 +32,7 @@ function ensure_cols(PDO $pdo, string $table, array $cols): bool {
     return $added;
 }
 
-const SCHEMA_VERSION = 19; // bump when schema or seed content changes
+const SCHEMA_VERSION = 20; // bump when schema or seed content changes
 
 function init_schema(PDO $pdo): void {
     // Fast path: schema already current — skip all migration/seed checks
@@ -165,6 +165,19 @@ function init_schema(PDO $pdo): void {
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         PRIMARY KEY(user_id, name)
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS meal_plans (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        meal TEXT NOT NULL,
+        recipe_id INTEGER NOT NULL,
+        cooked INTEGER DEFAULT 0,
+        PRIMARY KEY(user_id, date, meal)
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS shopping_checked (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        item TEXT NOT NULL,
+        PRIMARY KEY(user_id, item)
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS auth_tokens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

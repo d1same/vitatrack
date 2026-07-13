@@ -188,6 +188,8 @@ const LUCIDE = {
   x: '<path d="M18 6 6 18" /> <path d="m6 6 12 12" />',
   plus: '<path d="M5 12h14" /> <path d="M12 5v14" />',
   heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />',
+  cart: '<circle cx="8" cy="21" r="1" /> <circle cx="19" cy="21" r="1" /> <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /> <path d="M21 3v5h-5" /> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /> <path d="M8 16H3v5" />',
 };
 const ic = (n, s = 18, sw = 1.8) =>
   `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[n] || ''}</svg>`;
@@ -196,7 +198,7 @@ const ic = (n, s = 18, sw = 1.8) =>
 const IC = {
   home: ic('home', 23),
   diary: ic('journal', 23),
-  fast: ic('timer', 23),
+  kitchen: ic('chefhat', 23),
   more: '<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/></svg>',
 };
 
@@ -534,8 +536,8 @@ function shell(content) {
     <button data-v="home" class="${S.view === 'home' ? 'on' : ''}">${IC.home}<span>Home</span></button>
     <button data-v="diary" class="${S.view === 'diary' ? 'on' : ''}">${IC.diary}<span>Diary</span></button>
     <button class="nav-fab" id="fabAdd" title="Add food">${ic('plus', 25, 2.4)}</button>
-    <button data-v="fast" class="${S.view === 'fast' ? 'on' : ''}">${IC.fast}<span>Fasting</span></button>
-    <button data-v="more" class="${['more','progress','recipes','workouts','settings','learn'].includes(S.view) ? 'on' : ''}">${IC.more}<span>More</span></button>
+    <button data-v="kitchen" class="${['kitchen','recipes'].includes(S.view) ? 'on' : ''}">${IC.kitchen}<span>Kitchen</span></button>
+    <button data-v="more" class="${['more','progress','workouts','settings','learn','fast'].includes(S.view) ? 'on' : ''}">${IC.more}<span>More</span></button>
   </nav>`;
   document.querySelectorAll('.bottom-nav [data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
   $('#fabAdd').onclick = () => openAddSheet();
@@ -1342,8 +1344,8 @@ async function renderFast() {
 function renderMore() {
   const items = [
     ['progress', 'chart', 'Progress & charts', 'Weight, calories, biometrics, streaks'],
+    ['fast', 'timer', 'Fasting', 'Intermittent-fasting timer & history'],
     ['learn', 'bulb', 'Learn', 'Daily 2-minute coaching lessons'],
-    ['recipes', 'chefhat', 'Recipes', 'Keto, low-carb & balanced meal ideas'],
     ['workouts', 'dumbbell', 'Workouts', 'Back-safe exercise library'],
     ['settings', 'gear', 'Settings', 'Profile, reminders, AI key, theme'],
   ];
@@ -1585,6 +1587,202 @@ window.toggleFavRecipe = async name => {
   await api('fav_recipe', { name, on });
   return on;
 };
+
+// ══ KITCHEN (weekly meal plan + shopping list) ════════════════════════
+const KMEALS = { breakfast: ['🌅', 'Breakfast'], lunch: ['☀️', 'Lunch'], dinner: ['🌙', 'Dinner'] };
+
+// Build a 7-day plan from the recipe pool, honoring diet, conditions and favorites.
+function generateWeekPlan() {
+  const p = S.profile, conds = userConditions(p);
+  const dietOk = r => p.diet === 'keto' ? r.diet === 'keto' : p.diet === 'lowcarb' ? r.diet !== 'balanced' : true;
+  const condOk = r => conds.every(c => recipeOkForCondition(r, c));
+  const used = new Set();
+  const pickFor = slot => {
+    let cand = S.recipes.filter(r => r.tag === slot && dietOk(r) && condOk(r));
+    if (!cand.length) cand = S.recipes.filter(r => r.tag === slot && dietOk(r));   // relax conditions
+    if (!cand.length) cand = S.recipes.filter(r => r.tag === slot);                // relax diet
+    if (!cand.length) return null;
+    const favFresh = cand.filter(r => S.recipeFavs.has(r.name) && !used.has(r.id));
+    const fresh = cand.filter(r => !used.has(r.id));
+    const pool = favFresh.length ? favFresh : fresh.length ? fresh : cand;
+    const r = pool[Math.floor(Math.random() * pool.length)];
+    used.add(r.id);
+    return r;
+  };
+  const plan = [];
+  for (let i = 0; i < 7; i++) {
+    const date = shiftDate(todayStr(), i);
+    for (const slot of ['breakfast', 'lunch', 'dinner']) {
+      const r = pickFor(slot);
+      if (r) plan.push({ date, meal: slot, recipe_id: +r.id });
+    }
+  }
+  return plan;
+}
+
+// Turn the planned recipes into a categorized, de-duplicated grocery list.
+function buildShoppingList(recipes) {
+  const CATS = [
+    ['Produce', ['tomato','cucumber','onion','garlic','lettuce','spinach','avocado','pepper','zucchini','broccoli','cilantro','parsley','dill','chive','lemon','lime','berr','raspberr','strawberr','blueberr','apple','banana','mushroom','celery','carrot','cabbage','jalap','scallion','ginger','asparagus','eggplant','kale','basil','peach','pomegranate','fava','snap pea','sprout','greens','herb']],
+    ['Protein', ['chicken','beef','egg','salmon','tuna','shrimp','pork','turkey','lamb','cod','bacon','sausage','ham','tofu','tempeh','steak','ribeye','thigh','ground','fish','meat']],
+    ['Dairy', ['cheese','milk','cream','yogurt','butter','feta','mozzarella','parmesan','cottage','tzatziki','kashk']],
+  ];
+  const FILLER = /^(few|a|an|of|some|big|small|fresh|dried|chopped|diced|minced|sliced|grated|ground|whole|handful|bunch|splash|pinch|dash)\b\s*/i;
+  const clean = line => {
+    let s = line
+      .replace(/\([^)]*\)/g, '')
+      .replace(/^\s*[\d./]+\s*/, '')
+      .replace(/^(g|kg|ml|l|oz|lb|tbsp|tsp|cups?|cans?|slices?|cloves?|scoops?|pieces?|strips?|bunch)\b\s*/i, '');
+    while (FILLER.test(s)) s = s.replace(FILLER, '');
+    return s.trim();
+  };
+  const catOf = n => { const l = n.toLowerCase(); for (const [name, kws] of CATS) if (kws.some(k => l.includes(k))) return name; return 'Pantry & other'; };
+  const seen = new Map();
+  for (const r of recipes) for (const line of String(r.ingredients || '').split('|')) {
+    const name = clean(line);
+    if (name.length < 2) continue;
+    const key = name.toLowerCase();
+    if (!seen.has(key)) seen.set(key, { name: name[0].toUpperCase() + name.slice(1), cat: catOf(name) });
+  }
+  const groups = {};
+  for (const { name, cat } of seen.values()) (groups[cat] = groups[cat] || []).push(name);
+  const order = ['Produce', 'Protein', 'Dairy', 'Pantry & other'];
+  return order.filter(c => groups[c]).map(c => [c, groups[c].sort()]);
+}
+
+async function renderKitchen() {
+  await loadRecipes();
+  if (!S._kitchenTab) S._kitchenTab = 'week';
+  const plan = (await api('meal_plan')).plan || [];
+  const byId = Object.fromEntries(S.recipes.map(r => [+r.id, r]));
+  const tab = S._kitchenTab;
+
+  shell(`<div class="screen">
+    <div class="screen-header"><div><div class="screen-sub">Plan · shop · cook</div>
+      <div class="screen-title">Kitchen</div></div></div>
+    <div class="seg" id="kTabs" style="margin-bottom:14px">
+      <button data-k="week" class="${tab === 'week' ? 'on' : ''}">${ic('calendar', 15)} This week</button>
+      <button data-k="shop" class="${tab === 'shop' ? 'on' : ''}">${ic('cart', 15)} Shopping</button>
+    </div>
+    <div id="kBody"></div>
+    <div class="list-item" data-go="recipes" style="margin-top:6px">
+      <div class="em ico">${ic('chefhat', 22)}</div><div class="grow"><h4>Browse all recipes</h4>
+      <div class="meta">${S.recipes.length} recipes · favorites, filters, cuisines</div></div><span class="muted">${ic('chevron', 15)}</span>
+    </div>
+  </div>`);
+
+  document.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { S._kitchenTab = b.dataset.k; render(); });
+  $('[data-go="recipes"]').onclick = () => { S.view = 'recipes'; render(); };
+
+  if (tab === 'week') kitchenWeek(plan, byId);
+  else kitchenShopping(plan, byId);
+}
+
+function kitchenWeek(plan, byId) {
+  const el = $('#kBody'); const p = S.profile;
+  if (!plan.length) {
+    el.innerHTML = `<div class="card" style="text-align:center;padding:26px 18px">
+      <div style="color:var(--accent)">${ic('chefhat', 40, 1.4)}</div>
+      <h3 style="margin:10px 0 4px">Your week, planned for you</h3>
+      <div class="muted" style="margin-bottom:16px">A full week of ${esc(p.diet)} meals matched to your goals — then a shopping list built from it. Nothing to decide or look up.</div>
+      <button class="btn" id="kGen">${ic('sparkle', 16)} Generate my week</button></div>`;
+    $('#kGen').onclick = kGenerate;
+    return;
+  }
+  const days = [...new Set(plan.map(x => x.date))].sort();
+  el.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <span class="muted">${days.length}-day plan · ${plan.filter(x => +x.cooked).length}/${plan.length} cooked</span>
+      <button class="btn small secondary" id="kRegen">${ic('refresh', 13)} Regenerate</button></div>
+    ${days.map(date => {
+      const meals = plan.filter(x => x.date === date);
+      const kc = meals.reduce((a, m) => a + (+byId[m.recipe_id]?.kcal || 0), 0);
+      const d = new Date(date + 'T12:00:00');
+      const label = date === todayStr() ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      return `<div class="card meal-group">
+        <div class="meal-head"><h3>${label}</h3><span class="kc">${Math.round(kc)} kcal</span></div>
+        ${['breakfast','lunch','dinner'].map(slot => {
+          const m = meals.find(x => x.meal === slot); const r = m && byId[m.recipe_id];
+          if (!r) return '';
+          return `<div class="food-row ${m.cooked ? 'cooked-row' : ''}">
+            <span style="font-size:20px" data-view="${r.id}">${KMEALS[slot][0]}</span>
+            <div class="grow" data-view="${r.id}" style="cursor:pointer"><div class="n">${esc(r.name)}</div>
+              <div class="d">${KMEALS[slot][1]} · ${Math.round(r.kcal)} kcal · P${Math.round(r.protein)} C${Math.round(r.carbs)} F${Math.round(r.fat)}</div></div>
+            ${m.cooked ? `<span class="kcal" style="color:var(--accent)">${ic('check', 16)}</span>`
+              : `<button class="mini-act" data-swap="${date}|${slot}" title="Swap">${ic('refresh', 14)}</button>
+                 <button class="mini-act" data-cook="${date}|${slot}|${r.id}" title="Cooked — log it" style="color:var(--accent)">${ic('check', 14)}</button>`}
+          </div>`;
+        }).join('')}
+      </div>`;
+    }).join('')}`;
+
+  $('#kRegen').onclick = kGenerate;
+  el.querySelectorAll('[data-view]').forEach(b => b.onclick = () => openRecipe(+b.dataset.view));
+  el.querySelectorAll('[data-swap]').forEach(b => b.onclick = () => kSwap(...b.dataset.swap.split('|')));
+  el.querySelectorAll('[data-cook]').forEach(b => b.onclick = () => {
+    const [date, slot, rid] = b.dataset.cook.split('|'); kCook(date, slot, +rid);
+  });
+}
+
+async function kGenerate() {
+  const plan = generateWeekPlan();
+  if (!plan.length) return toast('No recipes match your diet yet');
+  await api('save_plan', { plan });
+  await api('shopping_clear');           // fresh plan → fresh list
+  toast('Week planned'); render();
+}
+
+async function kSwap(date, slot) {
+  const p = S.profile, conds = userConditions(p);
+  const dietOk = r => p.diet === 'keto' ? r.diet === 'keto' : p.diet === 'lowcarb' ? r.diet !== 'balanced' : true;
+  let cand = S.recipes.filter(r => r.tag === slot && dietOk(r) && conds.every(c => recipeOkForCondition(r, c)));
+  if (cand.length < 2) cand = S.recipes.filter(r => r.tag === slot && dietOk(r));
+  if (!cand.length) return;
+  const r = cand[Math.floor(Math.random() * cand.length)];
+  await api('set_meal', { date, meal: slot, recipe_id: +r.id });
+  render();
+}
+
+async function kCook(date, slot, rid) {
+  const r = S.recipes.find(x => +x.id === rid); if (!r) return;
+  const meal = slot === 'snack' ? 'snacks' : slot;
+  await api('log_food', { date, meal, name: r.name, grams: 1,
+    kcal: +r.kcal, protein: +r.protein, carbs: +r.carbs, fat: +r.fat, fiber: +r.fiber,
+    sugar: +(r.sugar || 0), sodium: +(r.sodium || 0), satfat: +(r.satfat || 0) });
+  await api('mark_cooked', { date, meal: slot });
+  toast('Logged to your diary'); render();
+}
+
+async function kitchenShopping(plan, byId) {
+  const el = $('#kBody');
+  if (!plan.length) {
+    el.innerHTML = `<div class="empty"><div class="em">${ic('cart', 34)}</div>Plan your week first, then your shopping list builds itself.</div>`;
+    return;
+  }
+  const recipes = [...new Set(plan.map(x => x.recipe_id))].map(id => byId[id]).filter(Boolean);
+  const groups = buildShoppingList(recipes);
+  const checked = new Set((await api('shopping_state')).checked || []);
+  const total = groups.reduce((a, [, items]) => a + items.length, 0);
+
+  el.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <span class="muted">${total} items · ${checked.size} in cart</span>
+      <button class="btn small secondary" id="kUncheck">Uncheck all</button></div>
+    ${groups.map(([cat, items]) => `<div class="card">
+      <div class="card-title" style="margin-bottom:8px">${esc(cat)}</div>
+      ${items.map(name => {
+        const on = checked.has(name);
+        return `<label class="shop-item ${on ? 'got' : ''}">
+          <input type="checkbox" data-item="${esc(name)}" ${on ? 'checked' : ''}>
+          <span>${esc(name)}</span></label>`;
+      }).join('')}
+    </div>`).join('')}
+    <div class="tiny" style="text-align:center;padding:4px 8px 8px">Built from your ${recipes.length} planned recipes. Quantities vary by servings — check the recipe for exact amounts.</div>`;
+
+  el.querySelectorAll('[data-item]').forEach(cb => cb.onchange = async () => {
+    cb.closest('.shop-item').classList.toggle('got', cb.checked);
+    await api('shopping_toggle', { item: cb.dataset.item, on: cb.checked ? 1 : 0 });
+  });
+  $('#kUncheck').onclick = async () => { await api('shopping_clear'); render(); };
+}
 
 const DIET_BADGE = { keto: ['Keto', 'green'], lowcarb: ['Low-carb', 'blue'], balanced: ['Balanced', 'orange'] };
 
@@ -1979,7 +2177,7 @@ async function render() {
   if (!+S.profile?.onboarded) return renderOnboarding();
   const views = { home: renderHome, diary: renderDiary, fast: renderFast, more: renderMore,
     progress: renderProgress, recipes: renderRecipes, workouts: renderWorkouts, settings: renderSettings,
-    learn: renderLearn };
+    learn: renderLearn, kitchen: renderKitchen };
   (views[S.view] || renderHome)();
 }
 

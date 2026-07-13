@@ -562,6 +562,79 @@ case 'fav_recipe': {
     out(['ok' => true]);
 }
 
+// ── Kitchen: weekly meal plan + shopping list ───────────────────────
+case 'meal_plan': {
+    $uid = require_user();
+    $st = db()->prepare("SELECT date, meal, recipe_id, cooked FROM meal_plans WHERE user_id=? ORDER BY date, meal");
+    $st->execute([$uid]);
+    out(['ok' => true, 'plan' => $st->fetchAll()]);
+}
+
+case 'save_plan': {
+    $uid = require_user();
+    $items = is_array($in['plan'] ?? null) ? $in['plan'] : [];
+    $pdo = db();
+    $pdo->beginTransaction();
+    $pdo->prepare("DELETE FROM meal_plans WHERE user_id=?")->execute([$uid]);
+    $st = $pdo->prepare("INSERT OR REPLACE INTO meal_plans (user_id,date,meal,recipe_id,cooked) VALUES (?,?,?,?,0)");
+    foreach (array_slice($items, 0, 60) as $it) {
+        $date = $it['date'] ?? '';
+        $meal = in_array($it['meal'] ?? '', ['breakfast','lunch','dinner','snacks'], true) ? $it['meal'] : null;
+        $rid = (int)($it['recipe_id'] ?? 0);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !$meal || !$rid) continue;
+        $st->execute([$uid, $date, $meal, $rid]);
+    }
+    $pdo->commit();
+    out(['ok' => true]);
+}
+
+case 'set_meal': {
+    $uid = require_user();
+    $date = (string)($in['date'] ?? '');
+    $meal = in_array($in['meal'] ?? '', ['breakfast','lunch','dinner','snacks'], true) ? $in['meal'] : null;
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !$meal) fail('Bad slot');
+    if (!empty($in['clear'])) {
+        db()->prepare("DELETE FROM meal_plans WHERE user_id=? AND date=? AND meal=?")->execute([$uid, $date, $meal]);
+        out(['ok' => true]);
+    }
+    $rid = (int)($in['recipe_id'] ?? 0);
+    if (!$rid) fail('Missing recipe');
+    db()->prepare("INSERT OR REPLACE INTO meal_plans (user_id,date,meal,recipe_id,cooked)
+        VALUES (?,?,?,?,COALESCE((SELECT cooked FROM meal_plans WHERE user_id=? AND date=? AND meal=?),0))")
+      ->execute([$uid, $date, $meal, $rid, $uid, $date, $meal]);
+    out(['ok' => true]);
+}
+
+case 'mark_cooked': {
+    $uid = require_user();
+    $date = (string)($in['date'] ?? '');
+    $meal = (string)($in['meal'] ?? '');
+    db()->prepare("UPDATE meal_plans SET cooked=1 WHERE user_id=? AND date=? AND meal=?")->execute([$uid, $date, $meal]);
+    out(['ok' => true]);
+}
+
+case 'shopping_state': {
+    $uid = require_user();
+    $st = db()->prepare("SELECT item FROM shopping_checked WHERE user_id=?");
+    $st->execute([$uid]);
+    out(['ok' => true, 'checked' => array_column($st->fetchAll(), 'item')]);
+}
+
+case 'shopping_toggle': {
+    $uid = require_user();
+    $item = substr(trim((string)($in['item'] ?? '')), 0, 120);
+    if ($item === '') fail('Missing item');
+    if (!empty($in['on'])) db()->prepare("INSERT OR IGNORE INTO shopping_checked (user_id,item) VALUES (?,?)")->execute([$uid, $item]);
+    else db()->prepare("DELETE FROM shopping_checked WHERE user_id=? AND item=?")->execute([$uid, $item]);
+    out(['ok' => true]);
+}
+
+case 'shopping_clear': {
+    $uid = require_user();
+    db()->prepare("DELETE FROM shopping_checked WHERE user_id=?")->execute([$uid]);
+    out(['ok' => true]);
+}
+
 case 'exercises': {
     require_user();
     out(['ok' => true, 'exercises' => db()->query("SELECT * FROM exercises ORDER BY category, name")->fetchAll()]);
