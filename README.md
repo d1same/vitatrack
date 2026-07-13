@@ -1,4 +1,4 @@
-# 🥑 VitaTrack — Your Health & Weight-Loss Companion
+# 🥑 Thrive — Your Health & Weight-Loss Companion
 
 A complete, installable health web app: calorie counting, keto diet support, intermittent
 fasting timer, AI food-photo scanning, water reminders, back-safe workouts, recipes,
@@ -65,7 +65,7 @@ Reminders now arrive via Web Push even when the app isn't running.
 A signed, installable **`vitatrack.apk`** ships in this repo (and deploys to your
 site root, e.g. `https://your-site/vitatrack.apk`). To install: open that URL on an
 Android phone, download, and allow "install from this source." It's a TWA — the
-same VitaTrack web app in a native shell, sharing your server, accounts, and
+same Thrive web app in a native shell, sharing your server, accounts, and
 background notifications. The matching `.well-known/assetlinks.json` (already
 deployed) validates the signing key so the browser address bar is hidden and it
 looks 100% native.
@@ -104,5 +104,5 @@ where all user data lives. Back it up by downloading `data/health.sqlite` occasi
 | `data/` | SQLite database (blocked from web access) |
 
 ## ⚠️ Disclaimer
-VitaTrack provides general wellness guidance, not medical advice. Consult your doctor
+Thrive provides general wellness guidance, not medical advice. Consult your doctor
 before starting a new diet or exercise program, especially with existing conditions.

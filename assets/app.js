@@ -1,4 +1,4 @@
-/* ═══ VitaTrack SPA ═══ */
+/* ═══ Thrive SPA ═══ */
 'use strict';
 
 // ── State ─────────────────────────────────────────────────────────────
@@ -237,7 +237,7 @@ function renderAuth(mode = 'login') {
   <div class="auth-wrap">
     <div class="auth-hero">
       <div class="logo brandmark">${ic('heartpulse', 34, 1.6)}</div>
-      <h1>VitaTrack</h1>
+      <h1>Thrive</h1>
       <p>Calories · Keto · Fasting · Workouts<br>Your personal weight-loss companion</p>
     </div>
     <div class="card" style="animation-delay:.1s">
@@ -456,7 +456,7 @@ function renderOnboarding() {
         ${ISSUES.map(([k, t]) => `<button class="chip ${d.health_issues.includes(k) ? 'on' : ''}" data-k="${k}">${t}</button>`).join('')}
       </div>
       <div class="spacer"></div>
-      <p class="tiny" style="margin-top:14px">VitaTrack gives general wellness guidance, not medical advice. Check with your doctor before starting a new diet or exercise program, especially with existing conditions.</p>
+      <p class="tiny" style="margin-top:14px">Thrive gives general wellness guidance, not medical advice. Check with your doctor before starting a new diet or exercise program, especially with existing conditions.</p>
     </div>`;
   }
   function wU() { return imp ? 'lb' : 'kg'; }
@@ -1366,7 +1366,7 @@ function renderMore() {
     ${items.map(([v, icn, t, s]) => `<div class="list-item" data-go="${v}">
       <div class="em ico">${ic(icn, 22)}</div><div class="grow"><h4>${t}</h4><div class="meta">${s}</div></div><span class="muted">${ic('chevron', 15)}</span>
     </div>`).join('')}
-    ${S.installPrompt ? `<div class="list-item" id="installBtn"><div class="em ico">${ic('download', 22)}</div><div class="grow"><h4>Install app</h4><div class="meta">Add VitaTrack to your home screen</div></div></div>` : ''}
+    ${S.installPrompt ? `<div class="list-item" id="installBtn"><div class="em ico">${ic('download', 22)}</div><div class="grow"><h4>Install app</h4><div class="meta">Add Thrive to your home screen</div></div></div>` : ''}
   </div>`);
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
   const ib = $('#installBtn');
@@ -2066,7 +2066,7 @@ async function renderSettings() {
 
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--red-soft);color:var(--red)">${ic('heartpulse', 16)}</span>Health sync</div>
-      <div class="muted" style="margin-bottom:10px">Auto-sync steps, workouts, sleep and heart rate from <b>Health Connect</b> — which gathers data from Samsung Health, your ring or watch, and most Android fitness apps. Install the VitaTrack Android app, allow Health Connect access, and your data flows into Progress automatically.</div>
+      <div class="muted" style="margin-bottom:10px">Auto-sync steps, workouts, sleep and heart rate from <b>Health Connect</b> — which gathers data from Samsung Health, your ring or watch, and most Android fitness apps. Install the Thrive Android app, allow Health Connect access, and your data flows into Progress automatically.</div>
       <div id="syncStatus" class="tiny">Checking sync status…</div>
     </div>
 
@@ -2101,7 +2101,7 @@ async function renderSettings() {
     </div>
 
     <button class="btn danger" id="sLogout" style="margin-top:6px">Log out</button>
-    <p class="tiny" style="text-align:center;margin-top:16px">VitaTrack · not medical advice — consult your doctor for health decisions.</p>
+    <p class="tiny" style="text-align:center;margin-top:16px">Thrive · not medical advice — consult your doctor for health decisions.</p>
   </div>`);
 
   $('#sEditProfile').onclick = () => { OB.step = 0; OB.data = {}; S.profile.onboarded = 0; render(); };
@@ -2219,7 +2219,7 @@ async function renderSettings() {
     const blob = new Blob([JSON.stringify(r.export, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'vitatrack-backup-' + todayStr() + '.json';
+    a.download = 'thrive-backup-' + todayStr() + '.json';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     toast('Backup downloaded');

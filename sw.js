@@ -1,5 +1,5 @@
 // Service worker: offline shell cache + notification display.
-const CACHE = 'vitatrack-v25';
+const CACHE = 'vitatrack-v26';
 const SHELL = ['./index.php', './assets/app.css?v=25', './assets/app.js?v=25', './assets/fonts/InterVariable.woff2', './icons/icon.svg'];
 
 self.addEventListener('install', e => {
@@ -31,7 +31,7 @@ self.addEventListener('fetch', e => {
 self.addEventListener('message', e => {
   const d = e.data || {};
   if (d.type === 'notify') {
-    self.registration.showNotification(d.title || 'VitaTrack', {
+    self.registration.showNotification(d.title || 'Thrive', {
       body: d.body || '',
       icon: './icons/icon-180.png',
       badge: './icons/icon-180.png',
@@ -47,7 +47,7 @@ self.addEventListener('push', e => {
       .then(r => r.json())
       .catch(() => null)
       .then(d => {
-        const n = d && d.title ? d : { title: 'VitaTrack', body: 'Time for a healthy habit — log your day.' };
+        const n = d && d.title ? d : { title: 'Thrive', body: 'Time for a healthy habit — log your day.' };
         return self.registration.showNotification(n.title, {
           body: n.body,
           icon: './icons/icon-180.png',

@@ -1,8 +1,8 @@
 {
   "packageId": "us.mobasheri.health.twa",
   "host": "health.mobasheri.us",
-  "name": "VitaTrack",
-  "launcherName": "VitaTrack",
+  "name": "Thrive",
+  "launcherName": "Thrive",
   "display": "standalone",
   "themeColor": "#0E9F6E",
   "themeColorDark": "#0B1220",

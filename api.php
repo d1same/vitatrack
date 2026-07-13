@@ -105,11 +105,11 @@ case 'request_reset': {
     $link = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . $dir . '/index.php?reset=' . $token;
     $sent = @mail(
         $email,
-        'VitaTrack password reset',
-        "Someone requested a password reset for your VitaTrack account.\n\n"
+        'Thrive password reset',
+        "Someone requested a password reset for your Thrive account.\n\n"
         . "Reset link (valid for 1 hour):\n$link\n\n"
         . "If this wasn't you, you can ignore this email.",
-        "From: VitaTrack <noreply@$host>\r\nContent-Type: text/plain; charset=UTF-8"
+        "From: Thrive <noreply@$host>\r\nContent-Type: text/plain; charset=UTF-8"
     );
     if (!$sent) fail('This server could not send email — ask the site owner to reset your password.');
     out(['ok' => true, 'message' => $generic]);
@@ -494,7 +494,7 @@ case 'export_data': {
         return $st->fetchAll();
     };
     out(['ok' => true, 'export' => [
-        'app' => 'VitaTrack', 'exported_at' => gmdate('c'),
+        'app' => 'Thrive', 'exported_at' => gmdate('c'),
         'profile' => get_profile($uid),
         'diary'   => $pull("SELECT date,meal,name,grams,kcal,protein,carbs,fat,fiber,sugar,sodium,satfat FROM diary WHERE user_id=? ORDER BY date,id"),
         'weights' => $pull("SELECT date,weight_kg,body_fat FROM weights WHERE user_id=? ORDER BY date"),
@@ -743,7 +743,7 @@ case 'due_reminder': {
         $d = json_decode($v, true);
         if (is_array($d) && !empty($d['title'])) out(['ok' => true, 'title' => $d['title'], 'body' => $d['body'] ?? '']);
     }
-    out(['ok' => true, 'title' => 'VitaTrack', 'body' => 'Time for a healthy habit — log your day.']);
+    out(['ok' => true, 'title' => 'Thrive', 'body' => 'Time for a healthy habit — log your day.']);
 }
 
 // ── CookUnity (opt-in meal-delivery integration) ─────────────────────

@@ -1,6 +1,6 @@
 # Health Connect sync — Android companion
 
-VitaTrack can auto-import **steps, workouts, sleep, resting heart rate, blood
+Thrive can auto-import **steps, workouts, sleep, resting heart rate, blood
 glucose/pressure and weight** from **Google Health Connect** — the on-device hub
 that Samsung Health, Fitbit, Oura, Galaxy Ring, Garmin and most Android fitness
 apps write into. Read Health Connect once and you capture almost any Android
@@ -17,7 +17,7 @@ to finish — this document is the buildable spec for it.
 
 ```
 Samsung Health / ring / watch ─┐
-                               ├─▶ Health Connect (on device) ─▶ VitaTrack
+                               ├─▶ Health Connect (on device) ─▶ Thrive
 Google Fit / Fitbit / Oura ────┘        (native read)          Android app
                                                                      │ HTTPS POST
                                                                      ▼
@@ -32,7 +32,7 @@ Google Fit / Fitbit / Oura ────┘        (native read)          Android
 
 A pure TWA (the current Bubblewrap APK) **cannot** call Health Connect — that's
 native API territory. The companion is a **Capacitor** wrapper: it runs the exact
-same VitaTrack web UI, plus a native Health Connect plugin. Same server, same
+same Thrive web UI, plus a native Health Connect plugin. Same server, same
 accounts, same code — one extra native layer.
 
 ---
@@ -81,20 +81,20 @@ Prerequisites: Node, Android Studio, the JDK (you already have all three).
 # From the repo root
 npm init -y
 npm i @capacitor/core @capacitor/cli @capacitor/android
-npx cap init VitaTrack us.mobasheri.health --web-dir=.
+npx cap init Thrive us.mobasheri.health --web-dir=.
 npx cap add android
 # Add a maintained Health Connect plugin (verify the current one on npm):
 npm i capacitor-health-connect     # e.g. @kiwi-health/capacitor-health-connect
 npx cap sync
 ```
 
-Point the app at the live site (so the APK loads the deployed VitaTrack, and
+Point the app at the live site (so the APK loads the deployed Thrive, and
 sync survives deploys) — in `capacitor.config.json`:
 
 ```json
 {
   "appId": "us.mobasheri.health",
-  "appName": "VitaTrack",
+  "appName": "Thrive",
   "server": { "url": "https://health.mobasheri.us", "cleartext": false }
 }
 ```
@@ -120,7 +120,7 @@ Add `assets/health-sync.js` and load it only when the native plugin exists.
 Plugin method names vary — check your chosen plugin's docs — but the shape is:
 
 ```js
-// Pull the last 7 days from Health Connect and push to VitaTrack's server.
+// Pull the last 7 days from Health Connect and push to Thrive's server.
 async function syncHealthConnect() {
   const HC = window.Capacitor?.Plugins?.HealthConnect;
   if (!HC) return;                                   // not the native app → skip
@@ -194,7 +194,7 @@ Reading Health Connect is **sensitive** and gated:
    work immediately for yourself and testers without review.
 
 For an open-source, self-hosted project the clean model is: **one official
-published VitaTrack app** whose `server.url` can be pointed at any deployment, so
+published Thrive app** whose `server.url` can be pointed at any deployment, so
 self-hosters don't each need their own Play listing. Document the alternative
 (build your own APK) for those who want it.
 

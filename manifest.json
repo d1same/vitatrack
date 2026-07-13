@@ -1,6 +1,6 @@
 {
-  "name": "VitaTrack — Health Companion",
-  "short_name": "VitaTrack",
+  "name": "Thrive — Health Companion",
+  "short_name": "Thrive",
   "description": "Calorie counting, keto diet, intermittent fasting, workouts and weight-loss tracking.",
   "start_url": "./index.php",
   "scope": "./",
