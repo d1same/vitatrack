@@ -99,6 +99,24 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
   width: 26px; height: 26px; border: 3px solid var(--accent-soft);
   border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
 }
+/* Reminders card: toggle rows + collapsible time detail */
+.rem-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 0; font-size: 14.5px; font-weight: 650;
+}
+.rem-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+.rem-detail { padding: 2px 0 12px 28px; }
+.rem-detail[hidden] { display: none; }
+.rem-line {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 5px 0; font-size: 13.5px; color: var(--text2);
+}
+.rem-line .rem-ctl { display: flex; align-items: center; gap: 6px; }
+.rem-time {
+  font-size: 13.5px; padding: 6px 9px; width: auto; min-width: 0;
+  border-radius: 10px;
+}
+.rem-detail + .rem-row { border-top: 1px solid var(--border); }
 
 /* ── Layout ── */
 .screen {

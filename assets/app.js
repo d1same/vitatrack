@@ -2141,17 +2141,25 @@ async function renderSettings() {
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('bell', 16)}</span>Reminders</div>
       <div class="muted" style="margin-bottom:12px">Pick which reminders you want and set your own times, then turn on background notifications so they arrive even when the app is closed.</div>
-      ${(() => { const tv = (k, d) => st[k] || d; const tin = (k, d) => `<input type="time" data-time="${k}" value="${tv(k, d)}" style="font-size:13.5px;padding:5px 7px;width:auto">`;
-        const toggle = (k, lbl) => `<label class="row" style="padding:8px 0;justify-content:space-between;font-size:14.5px">${lbl}
-          <input type="checkbox" data-rem="${k}" ${st[k] === '1' ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--accent)"></label>`;
+      ${(() => {
+        const on = k => st[k] === '1';
+        const tin = (k, d) => `<input type="time" data-time="${k}" value="${st[k] || d}" class="rem-time">`;
+        const toggle = (k, lbl) => `<label class="rem-row">${lbl}<input type="checkbox" data-rem="${k}" ${on(k) ? 'checked' : ''}></label>`;
+        const line = (label, ctl) => `<div class="rem-line"><span>${label}</span><span class="rem-ctl">${ctl}</span></div>`;
+        const detail = (k, inner) => `<div class="rem-detail" data-for="${k}"${on(k) ? '' : ' hidden'}>${inner}</div>`;
         return `
         ${toggle('reminders_water', '💧 Drink water')}
-        <div class="row" style="flex-wrap:wrap;gap:6px 8px;padding:0 0 10px;font-size:13px;color:var(--text2);align-items:center">From ${tin('water_start', '09:00')} to ${tin('water_end', '21:00')} every
-          <select data-time="water_every" style="font-size:13.5px;padding:5px 7px">${[1, 2, 3, 4].map(n => `<option value="${n}" ${(parseInt(st.water_every, 10) || 2) === n ? 'selected' : ''}>${n}h</option>`).join('')}</select></div>
+        ${detail('reminders_water',
+          line('From', tin('water_start', '09:00')) +
+          line('To', tin('water_end', '21:00')) +
+          line('Remind every', `<select data-time="water_every" class="rem-time">${[1, 2, 3, 4].map(n => `<option value="${n}" ${(parseInt(st.water_every, 10) || 2) === n ? 'selected' : ''}>${n} hour${n > 1 ? 's' : ''}</option>`).join('')}</select>`))}
         ${toggle('reminders_meals', '🍽️ Meal times')}
-        <div class="row" style="flex-wrap:wrap;gap:6px 10px;padding:0 0 10px;font-size:13px;color:var(--text2);align-items:center">Breakfast ${tin('meal_breakfast', '08:00')} Lunch ${tin('meal_lunch', '13:00')} Dinner ${tin('meal_dinner', '19:00')}</div>
+        ${detail('reminders_meals',
+          line('Breakfast', tin('meal_breakfast', '08:00')) +
+          line('Lunch', tin('meal_lunch', '13:00')) +
+          line('Dinner', tin('meal_dinner', '19:00')))}
         ${toggle('reminders_weight', '⚖️ Morning weigh-in')}
-        <div class="row" style="gap:8px;padding:0 0 6px;font-size:13px;color:var(--text2);align-items:center">At ${tin('weigh_time', '08:00')}</div>`;
+        ${detail('reminders_weight', line('Time', tin('weigh_time', '08:00')))}`;
       })()}
       <div class="spacer"></div>
       <button class="btn small secondary" id="sPush" style="width:100%">Checking…</button>
@@ -2245,6 +2253,8 @@ async function renderSettings() {
     }
     await api('save_settings', { [cb.dataset.rem]: cb.checked ? '1' : '0' });
     S.settings[cb.dataset.rem] = cb.checked ? '1' : '0';
+    const det = document.querySelector(`.rem-detail[data-for="${cb.dataset.rem}"]`);
+    if (det) det.hidden = !cb.checked;
     updateNotifState();
   });
   document.querySelectorAll('[data-time]').forEach(el => el.onchange = async () => {
