@@ -194,6 +194,7 @@ const LUCIDE = {
   mail: '<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" /> <rect x="2" y="4" width="20" height="16" rx="2" />',
   trenddown: '<path d="M16 17h6v-6" /> <path d="m22 17-8.5-8.5-5 5L2 7" />',
   download: '<path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" />',
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2" /> <path d="M12 18h.01" />',
   leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /> <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />',
   coffee: '<path d="M10 2v2" /> <path d="M14 2v2" /> <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" /> <path d="M6 2v2" />',
   glucose: '<path d="M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z" /> <path d="M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97" />',
@@ -254,6 +255,7 @@ function renderAuth(mode = 'login') {
         : mode === 'forgot' ? 'Remembered it? <b id="aSwap">Sign in</b>'
         : 'New here? <b id="aSwap">Create an account</b>'}
     </div>
+    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./vitatrack.apk" download style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
   </div>`;
   $('#aSwap').onclick = () => renderAuth(mode === 'login' ? 'register' : 'login');
   const fg = $('#aForgot');
@@ -1360,17 +1362,89 @@ function renderMore() {
     ['learn', 'bulb', 'Learn', 'Daily 2-minute coaching lessons'],
     ['workouts', 'dumbbell', 'Workouts', 'Back-safe exercise library'],
     ['settings', 'gear', 'Settings', 'Profile, reminders, AI key, theme'],
+    ['getapp', 'smartphone', 'Get the app', 'Install Thrive on your phone'],
   ];
   shell(`<div class="screen">
     <div class="screen-header"><div class="screen-title">More</div></div>
     ${items.map(([v, icn, t, s]) => `<div class="list-item" data-go="${v}">
       <div class="em ico">${ic(icn, 22)}</div><div class="grow"><h4>${t}</h4><div class="meta">${s}</div></div><span class="muted">${ic('chevron', 15)}</span>
     </div>`).join('')}
-    ${S.installPrompt ? `<div class="list-item" id="installBtn"><div class="em ico">${ic('download', 22)}</div><div class="grow"><h4>Install app</h4><div class="meta">Add Thrive to your home screen</div></div></div>` : ''}
   </div>`);
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
-  const ib = $('#installBtn');
-  if (ib) ib.onclick = async () => { S.installPrompt.prompt(); };
+}
+
+// ══ GET THE APP ═══════════════════════════════════════════════════════
+function renderGetApp() {
+  const ua = navigator.userAgent || '';
+  const isAndroid = /Android/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  const origin = location.origin;
+
+  const androidCard = `
+    <div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('smartphone', 16)}</span>Android app</div>
+      <div class="muted" style="margin-bottom:14px">Install Thrive as a real Android app — home-screen icon, full screen, and reminders that arrive on their own.</div>
+      <a class="btn" href="./vitatrack.apk" download style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
+      <div class="tiny muted" style="margin-top:10px;line-height:1.6">After it downloads, tap the file and choose <b>Install</b>. If Android asks, allow installs from your browser this once. About 1&nbsp;MB.</div>
+    </div>`;
+
+  const iosCard = `
+    <div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('smartphone', 16)}</span>iPhone &amp; iPad</div>
+      <div class="muted" style="margin-bottom:6px">Apple doesn't allow app-file installs, but you can add Thrive to your Home Screen — it works just like an app, including notifications.</div>
+      <ol class="tiny muted" style="margin:8px 0 0;padding-left:18px;line-height:1.8">
+        <li>Open this site in <b>Safari</b>.</li>
+        <li>Tap the <b>Share</b> button (the square with an up-arrow).</li>
+        <li>Choose <b>Add to Home Screen</b>.</li>
+      </ol>
+    </div>`;
+
+  const pwaCard = S.installPrompt ? `
+    <div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('download', 16)}</span>Add to home screen</div>
+      <div class="muted" style="margin-bottom:12px">Install the lightweight web version — no download, updates itself automatically.</div>
+      <button class="btn secondary" id="pwaInstall" style="width:100%">Add Thrive to home screen</button>
+    </div>` : '';
+
+  const desktopCard = `
+    <div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('smartphone', 16)}</span>Get it on your phone</div>
+      <div class="muted" style="margin-bottom:12px">Open this address on your Android phone, then tap <b>More → Get the app</b> to download it there:</div>
+      <div class="row" style="gap:6px;align-items:stretch">
+        <input id="siteUrl" readonly value="${esc(origin)}" style="flex:1" onclick="this.select()">
+        <button class="btn small secondary" id="copyUrl" style="white-space:nowrap">${ic('copy', 13)} Copy</button>
+      </div>
+    </div>`;
+
+  let body;
+  if (standalone) {
+    body = `<div class="card" style="text-align:center">
+      <div style="color:var(--accent);margin-bottom:8px">${ic('check', 34, 2)}</div>
+      <h3 style="margin:0 0 4px">You're all set</h3>
+      <div class="muted">You're already using the installed Thrive app. Nothing to download.</div>
+    </div>`;
+  } else if (isAndroid) {
+    body = androidCard + pwaCard;
+  } else if (isIOS) {
+    body = iosCard;
+  } else {
+    body = desktopCard + androidCard;
+  }
+
+  shell(`<div class="screen">
+    <div class="screen-header"><div><div class="screen-title">Get the app</div>
+      <div class="screen-sub">Thrive on your phone, always with you</div></div></div>
+    ${body}
+  </div>`);
+
+  const pi = $('#pwaInstall');
+  if (pi) pi.onclick = async () => { if (S.installPrompt) { S.installPrompt.prompt(); try { await S.installPrompt.userChoice; } catch (e) {} S.installPrompt = null; render(); } };
+  const cu = $('#copyUrl');
+  if (cu) cu.onclick = async () => {
+    try { await navigator.clipboard.writeText(origin); toast('Link copied'); }
+    catch (e) { const i = $('#siteUrl'); if (i) { i.select(); document.execCommand('copy'); toast('Link copied'); } }
+  };
 }
 
 // ══ LEARN (drip lessons, Noom-style) ══════════════════════════════════
@@ -2302,7 +2376,7 @@ async function render() {
   if (!+S.profile?.onboarded) return renderOnboarding();
   const views = { home: renderHome, diary: renderDiary, fast: renderFast, more: renderMore,
     progress: renderProgress, recipes: renderRecipes, workouts: renderWorkouts, settings: renderSettings,
-    learn: renderLearn, kitchen: renderKitchen };
+    learn: renderLearn, kitchen: renderKitchen, getapp: renderGetApp };
   (views[S.view] || renderHome)();
 }
 

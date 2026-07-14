@@ -6,6 +6,8 @@ Options -Indexes
 # 8.x version, change ea-php83 to ea-php82 / ea-php81 accordingly.
 <IfModule mime_module>
   AddHandler application/x-httpd-ea-php83 .php .phtml
+  # Serve the Android app with the correct type so browsers download it.
+  AddType application/vnd.android.package-archive .apk
 </IfModule>
 
 <IfModule mod_headers.c>
