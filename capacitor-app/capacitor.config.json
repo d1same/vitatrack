@@ -1,0 +1,9 @@
+{
+  "appId": "us.mobasheri.health",
+  "appName": "Thrive",
+  "webDir": "www",
+  "server": {
+    "url": "https://health.mobasheri.us",
+    "cleartext": false
+  }
+}

@@ -13,3 +13,13 @@ android-app/*
 
 # APK v4 signature (not needed for download-install)
 *.apk.idsig
+
+# Capacitor companion (Health Connect) — track source, ignore deps & build output
+capacitor-app/node_modules/
+capacitor-app/android/.gradle/
+capacitor-app/android/build/
+capacitor-app/android/app/build/
+capacitor-app/android/capacitor-cordova-android-plugins/build/
+capacitor-app/android/local.properties
+capacitor-app/android/.idea/
+capacitor-app/android/app/release/

@@ -1,0 +1,12 @@
+{
+  "name": "thrive-health-connect",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Thrive native companion — loads the live web app + Health Connect sync",
+  "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
+    "capacitor-health": "^8.1.2"
+  }
+}

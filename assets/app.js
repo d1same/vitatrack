@@ -2404,7 +2404,7 @@ async function syncHealthConnect(manual) {
   try {
     const avail = await H.isHealthAvailable();
     if (!avail || !avail.available) { if (manual) toast('Health Connect isn’t set up on this device'); return; }
-    const perms = { permissions: ['READ_STEPS', 'READ_WORKOUTS', 'READ_CALORIES', 'READ_HEART_RATE'] };
+    const perms = { permissions: ['READ_STEPS', 'READ_WORKOUTS', 'READ_ACTIVE_CALORIES', 'READ_HEART_RATE'] };
     let pr = null;
     try { pr = await H.checkHealthPermissions(perms); } catch (e) {}
     const granted = pr && Array.isArray(pr.permissions) && pr.permissions.some(Boolean);
