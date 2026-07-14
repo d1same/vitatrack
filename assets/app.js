@@ -2141,8 +2141,10 @@ async function renderSettings() {
 
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--red-soft);color:var(--red)">${ic('heartpulse', 16)}</span>Health sync</div>
-      <div class="muted" style="margin-bottom:10px">Auto-sync steps, workouts, sleep and heart rate from <b>Health Connect</b> — which gathers data from Samsung Health, your ring or watch, and most Android fitness apps. Install the Thrive Android app, allow Health Connect access, and your data flows into Progress automatically.</div>
-      <div id="syncStatus" class="tiny">Checking sync status…</div>
+      <div class="muted" style="margin-bottom:10px">Bring your <b>steps and workouts</b> in from <b>Health Connect</b> — the Android hub that gathers data from Samsung Health, Fitbit, your ring or watch and most fitness apps. Needs the <b>Thrive Android app</b> (More → Get the app); it syncs automatically each time you open it.</div>
+      <div id="syncStatus" class="tiny" style="margin-bottom:10px">Checking sync status…</div>
+      <button class="btn small secondary" id="sSyncNow" style="width:100%">Sync Health Connect now</button>
+      <div id="syncHint" class="tiny muted" style="margin-top:8px"></div>
     </div>
 
     <div class="card">
@@ -2309,10 +2311,18 @@ async function renderSettings() {
     await api('save_settings', { anthropic_key: v });
     toast('API key saved'); render();
   };
+  const syncBtn = $('#sSyncNow'), syncHint = $('#syncHint');
+  if (syncHint) syncHint.textContent = hasHealthPlugin() ? '' : 'This button works inside the Thrive Android app. In a browser there’s no Health Connect to read.';
+  if (syncBtn) syncBtn.onclick = async () => {
+    if (!hasHealthPlugin()) return toast('Open Thrive from the installed Android app to sync');
+    syncBtn.disabled = true; syncBtn.textContent = 'Syncing…';
+    await syncHealthConnect(true);
+    syncBtn.disabled = false; syncBtn.textContent = 'Sync Health Connect now';
+  };
   api('sync_status').then(r => {
     const el = $('#syncStatus'); if (!el || !r.ok) return;
     const srcs = Object.entries(r.sources || {});
-    if (!srcs.length) { el.textContent = 'Not synced yet — connect Health Connect in the Android app.'; return; }
+    if (!srcs.length) { el.textContent = 'Not synced yet — open the Thrive Android app and allow Health Connect access.'; return; }
     const nice = { health_connect: 'Health Connect', apple_health: 'Apple Health', oura: 'Oura' };
     el.innerHTML = srcs.map(([s, t]) => {
       const when = new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -2381,6 +2391,53 @@ async function render() {
 }
 
 // ══ BOOT ══════════════════════════════════════════════════════════════
+// ══ HEALTH CONNECT SYNC ═══════════════════════════════════════════════
+// Runs only inside the native Capacitor companion (window.Capacitor.Plugins.Health).
+// In a normal browser / the TWA there's no plugin, so this is a silent no-op.
+function hasHealthPlugin() { return !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Health); }
+function prettyWorkout(t) { return t ? String(t).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Workout'; }
+
+async function syncHealthConnect(manual) {
+  const H = hasHealthPlugin() ? window.Capacitor.Plugins.Health : null;
+  if (!H || !S.user) { if (manual) toast('Open Thrive from the installed Android app to sync'); return; }
+  if (S._hcSyncing) return; S._hcSyncing = true;
+  try {
+    const avail = await H.isHealthAvailable();
+    if (!avail || !avail.available) { if (manual) toast('Health Connect isn’t set up on this device'); return; }
+    const perms = { permissions: ['READ_STEPS', 'READ_WORKOUTS', 'READ_CALORIES', 'READ_HEART_RATE'] };
+    let pr = null;
+    try { pr = await H.checkHealthPermissions(perms); } catch (e) {}
+    const granted = pr && Array.isArray(pr.permissions) && pr.permissions.some(Boolean);
+    if (!granted) { try { pr = await H.requestHealthPermissions(perms); } catch (e) {} }
+
+    const iso = d => d.toISOString();
+    const dayKey = t => new Date(t).toISOString().slice(0, 10);
+    const end = new Date(), start = new Date(Date.now() - 7 * 864e5);
+    const metrics = [], workouts = [];
+
+    try {
+      const s = await H.queryAggregated({ startDate: iso(start), endDate: iso(end), dataType: 'steps', bucket: 'day' });
+      for (const b of (s && s.aggregatedData || [])) if (b.value > 0) metrics.push({ date: dayKey(b.startDate), type: 'steps', value: Math.round(b.value) });
+    } catch (e) {}
+
+    try {
+      const w = await H.queryWorkouts({ startDate: iso(start), endDate: iso(end), includeHeartRate: false, includeRoute: false });
+      for (const r of (w && w.workouts || [])) {
+        const mins = Math.round((r.duration || ((new Date(r.endDate) - new Date(r.startDate)) / 1000)) / 60);
+        if (mins <= 0) continue;
+        workouts.push({ date: dayKey(r.startDate), name: prettyWorkout(r.workoutType), minutes: mins, kcal: Math.round(r.calories || 0), ext_id: 'hc-' + (r.id || (dayKey(r.startDate) + '-' + mins)) });
+      }
+    } catch (e) {}
+
+    if (!metrics.length && !workouts.length) { if (manual) toast('No Health Connect data in the last 7 days'); return; }
+    const res = await api('sync_health', { source: 'health_connect', metrics, workouts });
+    if (res && res.ok && manual) { toast(`Synced ${res.metrics_synced || 0} points · ${res.workouts_synced || 0} workouts`); if (S.view === 'settings') render(); }
+  } catch (e) { if (manual) toast('Sync failed: ' + (e.message || e)); }
+  finally { S._hcSyncing = false; }
+}
+// Auto-sync when the native app opens or returns to the foreground.
+document.addEventListener('visibilitychange', () => { if (!document.hidden && hasHealthPlugin()) syncHealthConnect(false); });
+
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.installPrompt = e; });
 (async function boot() {
   applyTheme();
@@ -2399,4 +2456,5 @@ window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.inst
   if (r.ok && r.user) { S.user = r.user; S.profile = r.profile; S.settings = r.settings || {}; }
   applyTheme();
   render();
+  if (S.user && hasHealthPlugin()) syncHealthConnect(false);
 })();
