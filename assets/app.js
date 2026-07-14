@@ -49,6 +49,9 @@ const wUnit = () => isImperial() ? 'lb' : 'kg';
 const inputW2kg = v => isImperial() ? lb2kg(parseFloat(v)) : parseFloat(v);
 const kg2input = kg => kg == null ? '' : round1(isImperial() ? kg2lb(kg) : kg);
 const glassMl = () => Math.max(50, Math.min(1000, parseInt(S.settings?.water_glass_ml) || 250));
+// Daily targets: user override (Settings → Goals) wins, else the computed plan.
+const calorieGoal = () => Math.round(+S.settings?.kcal_override || +S.profile?.kcal_target || 1800);
+const waterGoalMl = () => Math.round(+S.settings?.water_override || +S.profile?.water_ml || 2500);
 // Water is stored in ml; imperial users see fluid ounces.
 const ML_PER_OZ = 29.5735;
 const fmtWater = ml => isImperial() ? Math.round(ml / ML_PER_OZ) + ' oz' : (ml / 1000).toFixed(2) + ' L';
@@ -333,7 +336,7 @@ const ISSUES = [
 // Daily nutrition limits, tightened for the user's health conditions
 function healthLimits(p) {
   const issues = JSON.parse(p.health_issues || '[]');
-  const kcal = p.kcal_target || 1800;
+  const kcal = calorieGoal();
   const adj = [];
   let sugar = 30, sodium = 2300, satfat = Math.max(15, Math.round(kcal * 0.10 / 9));
   if (issues.includes('diabetes')) { sugar = 25; adj.push('diabetes'); }
@@ -536,7 +539,7 @@ function showPlanReveal(t) {
     </div>
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('droplet', 16)}</span>Daily water goal</div>
-      <b style="font-size:22px">${fmtWaterGoal(t.water_ml)}</b> <span class="muted">≈ ${Math.round(t.water_ml / 250)} glasses</span>
+      <b style="font-size:22px">${fmtWaterGoal(t.water_ml)}</b> <span class="muted">≈ ${Math.round(t.water_ml / glassMl())} glasses</span>
     </div>
     <button class="btn" id="planGo">Let's go</button>
   </div>`;
@@ -584,7 +587,7 @@ async function renderHome() {
   const fat = day.entries.reduce((a, e) => a + +e.fat, 0);
   const burned = day.workouts.reduce((a, w) => a + +w.kcal, 0);
   const netCarbs = Math.max(0, carbs - fiber);
-  const target = p.kcal_target || 1800;
+  const target = calorieGoal();
   const remaining = Math.round(target - eaten + burned);
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -603,7 +606,7 @@ async function renderHome() {
     if (day.entries.length) s += 25;
     if (eaten > 0 && eaten <= target * 1.05) s += 25;
     if (protein >= (p.protein_g || 100) * 0.9) s += 20;
-    if (day.water >= (p.water_ml || 2500)) s += 15;
+    if (day.water >= waterGoalMl()) s += 15;
     if (day.entries.length && netCarbs <= (p.carbs_g || 25)) s += 15;
     return s;
   })();
@@ -625,11 +628,11 @@ async function renderHome() {
         <b class="tile-big" style="font-size:16px;color:var(--text2)">Not fasting</b>
         <div class="tiny" style="margin-top:6px;color:var(--purple);font-weight:650">Tap to start ${esc(p.fasting_plan)}</div>
       </div>`;
-  const waterPct = Math.min(100, day.water / (p.water_ml || 2500) * 100);
+  const waterPct = Math.min(100, day.water / waterGoalMl() * 100);
   const glass = glassMl();
   const waterTile = `<div class="card tile" ${fastTile ? '' : 'style="grid-column:1/-1"'} onclick="addWater(${glass})">
       <div class="tile-head" style="color:var(--blue)">${ic('droplet', 14)} Water</div>
-      <b class="tile-big">${fmtWater(day.water).split(' ')[0]}<span style="font-size:12px;font-weight:600;color:var(--text2)"> / ${fmtWaterGoal(p.water_ml || 2500)}</span></b>
+      <b class="tile-big">${fmtWater(day.water).split(' ')[0]}<span style="font-size:12px;font-weight:600;color:var(--text2)"> / ${fmtWaterGoal(waterGoalMl())}</span></b>
       <div class="bar" style="margin-top:8px"><i data-w="${waterPct}%" style="background:var(--blue);width:0"></i></div>
       <div class="tiny" style="margin-top:6px">Tap for +${glassLabel()} · <u onclick="event.stopPropagation();addWater(-${glass})">undo</u></div>
     </div>`;
@@ -1506,7 +1509,7 @@ function weeklyInsight(r, p) {
   const days = (r.daily || []).filter(d => last7.has(d.date));
   if (!days.length) return '';
   const avg = Math.round(days.reduce((a, d) => a + +d.kcal, 0) / days.length);
-  const onTarget = days.filter(d => +d.kcal <= (p.kcal_target || 1800) * 1.05).length;
+  const onTarget = days.filter(d => +d.kcal <= calorieGoal() * 1.05).length;
   const w = r.weights || [];
   const wk = w.filter(x => last7.has(x.date));
   const delta = wk.length >= 2 ? +wk[wk.length - 1].weight_kg - +wk[0].weight_kg : null;
@@ -1575,8 +1578,8 @@ async function renderProgress() {
       ${lineChart(bfpts, { color: 'var(--orange)' })}</div>` : ''}
     <div class="card chart-card">
       <div class="card-title"><span class="icon" style="background:var(--red-soft);color:var(--red)">${ic('flame', 16)}</span>Calories — last 30 days</div>
-      ${barChart(kpts.slice(-45), { color: 'var(--accent)', goal: p.kcal_target })}
-      <div class="tiny">Dashed line = your ${p.kcal_target} kcal target. Orange bars = over target.</div>
+      ${barChart(kpts.slice(-45), { color: 'var(--accent)', goal: calorieGoal() })}
+      <div class="tiny">Dashed line = your ${calorieGoal()} kcal target. Orange bars = over target.</div>
     </div>
 
     <div class="card">
@@ -2098,11 +2101,19 @@ async function renderSettings() {
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('user', 16)}</span>${esc(S.user.name)}
         <span class="grow"></span><span class="tiny">${esc(S.user.email)}</span></div>
-      <div class="muted" style="margin-bottom:10px">Plan: ${p.kcal_target} kcal · P${p.protein_g} C${p.carbs_g} F${p.fat_g} · ${esc(p.diet)} · fasting ${esc(p.fasting_plan)}</div>
+      <div class="muted" style="margin-bottom:10px">Plan: ${calorieGoal()} kcal · P${p.protein_g} C${p.carbs_g} F${p.fat_g} · ${esc(p.diet)} · fasting ${esc(p.fasting_plan)}</div>
       <div class="row" style="gap:8px">
         <button class="btn small secondary grow" id="sEditProfile">Edit profile & plan</button>
         <button class="btn small secondary" id="sChangePw">${ic('lock', 14)} Password</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('target', 16)}</span>Daily goals</div>
+      <div class="muted" style="margin-bottom:10px">Your plan sets these automatically from your profile. Enter your own to override — leave blank to use the automatic value.</div>
+      <div class="field"><label>Calorie goal (kcal/day)</label><input id="gKcal" type="number" inputmode="numeric" placeholder="Auto: ${p.kcal_target || 1800}" value="${st.kcal_override || ''}"></div>
+      <div class="field" style="margin-bottom:10px"><label>Water goal (${isImperial() ? 'fl oz' : 'ml'}/day)</label><input id="gWater" type="number" inputmode="numeric" placeholder="Auto: ${isImperial() ? Math.round((p.water_ml || 2500) / ML_PER_OZ) : (p.water_ml || 2500)}" value="${st.water_override ? (isImperial() ? Math.round(st.water_override / ML_PER_OZ) : st.water_override) : ''}"></div>
+      <button class="btn small secondary" id="gSave" style="width:100%">Save goals</button>
     </div>
 
     <div class="card">
@@ -2191,6 +2202,16 @@ async function renderSettings() {
   </div>`);
 
   $('#sEditProfile').onclick = () => { OB.step = 0; OB.data = {}; S.profile.onboarded = 0; render(); };
+  $('#gSave').onclick = async () => {
+    const kc = parseInt($('#gKcal').value, 10) || 0;
+    let wv = parseFloat($('#gWater').value) || 0;
+    if (wv && isImperial()) wv = wv * ML_PER_OZ;
+    const kcal_override = kc > 0 ? String(kc) : '';
+    const water_override = wv > 0 ? String(Math.round(wv)) : '';
+    S.settings.kcal_override = kcal_override; S.settings.water_override = water_override;
+    await api('save_settings', { kcal_override, water_override });
+    toast('Goals saved'); render();
+  };
   $('#sChangePw').onclick = () => {
     const sh = openSheet(`<h3>Change password</h3>
       <div class="field"><label>Current password</label><input id="cp0" type="password" autocomplete="current-password"></div>

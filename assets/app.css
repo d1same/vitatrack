@@ -90,14 +90,14 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 .boot-splash {
   height: 100vh; display: flex; flex-direction: column; gap: 14px;
   align-items: center; justify-content: center;
-  background: linear-gradient(160deg, #0f5c46, #07352a); color: #fff;
+  background: var(--bg); color: var(--accent);
 }
 .boot-logo { animation: bounceIn 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); display: flex; }
 .boot-logo svg { width: 58px; height: 58px; }
-.boot-name { font-size: 26px; font-weight: 800; letter-spacing: 0.5px; }
+.boot-name { font-size: 26px; font-weight: 800; letter-spacing: 0.5px; color: var(--text); }
 .spinner {
-  width: 26px; height: 26px; border: 3px solid rgba(255,255,255,0.3);
-  border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite;
+  width: 26px; height: 26px; border: 3px solid var(--accent-soft);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
 }
 
 /* ── Layout ── */

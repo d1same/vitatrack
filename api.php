@@ -693,7 +693,8 @@ case 'progress': {
 case 'save_settings': {
     $uid = require_user();
     $allowed = ['anthropic_key','reminders_water','reminders_meals','reminders_weight','theme','water_glass_ml','cook_time','veg_plan',
-        'meal_breakfast','meal_lunch','meal_dinner','weigh_time','water_start','water_end','water_every'];
+        'meal_breakfast','meal_lunch','meal_dinner','weigh_time','water_start','water_end','water_every',
+        'kcal_override','water_override'];
     $st = db()->prepare("INSERT INTO settings (user_id,key,value) VALUES (?,?,?)
         ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value");
     foreach ($in as $k => $v) {
