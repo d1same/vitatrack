@@ -82,8 +82,15 @@ function send_push(string $endpoint): int {
     return $code;
 }
 
+// Parse an "HH:MM" setting into minutes-of-day, falling back to a default.
+function reminder_min(string $v, int $dh, int $dm): int {
+    if (preg_match('/^(\d{1,2}):(\d{2})$/', $v, $m)) return (((int)$m[1]) % 24) * 60 + (((int)$m[2]) % 60);
+    return $dh * 60 + $dm;
+}
+
 // Which reminder (if any) is due for this user at their local time right now?
-// Mirrors the in-app schedule: weigh-in 8:00, meals 8/13/19, water odd hours 9–21.
+// Mirrors the in-app reminderSchedule(): user-configured meal/weigh/water times,
+// each fires once per day within a grace window after its set time.
 function compute_due_reminder(PDO $pdo, int $uid, int $tzMin): ?array {
     $st = $pdo->prepare("SELECT key, value FROM settings WHERE user_id=?");
     $st->execute([$uid]);
@@ -91,24 +98,37 @@ function compute_due_reminder(PDO $pdo, int $uid, int $tzMin): ?array {
     foreach ($st->fetchAll() as $r) $s[$r['key']] = $r['value'];
 
     $now = time() + $tzMin * 60;
-    $h = (int)gmdate('G', $now);
-    $mi = (int)gmdate('i', $now);
-    $slot = gmdate('Y-m-d-G', $now);
-    if ($mi >= 25) return null; // only fire near the top of the hour
+    $today = gmdate('Y-m-d', $now);
+    $nowMin = (int)gmdate('G', $now) * 60 + (int)gmdate('i', $now);
 
-    $due = null;
-    if (($s['reminders_weight'] ?? '') === '1' && $h === 8) {
-        $due = ['type' => 'weigh', 'title' => 'Morning weigh-in', 'body' => 'Best time to weigh: after waking, before eating. Log it now.'];
+    $sched = [];
+    if (($s['reminders_weight'] ?? '') === '1') {
+        $sched[] = ['type' => 'weigh', 'min' => reminder_min($s['weigh_time'] ?? '', 8, 0),
+            'title' => 'Morning weigh-in', 'body' => 'Best time to weigh: after waking, before eating. Log it now.'];
     }
-    if (!$due && ($s['reminders_meals'] ?? '') === '1' && in_array($h, [8, 13, 19], true)) {
-        $meal = $h === 8 ? 'breakfast' : ($h === 13 ? 'lunch' : 'dinner');
-        $due = ['type' => 'meal', 'title' => ucfirst($meal) . ' time', 'body' => "Log your $meal — your streak is counting on you."];
+    if (($s['reminders_meals'] ?? '') === '1') {
+        foreach ([['meal_b', 'meal_breakfast', 8, 0, 'Breakfast'], ['meal_l', 'meal_lunch', 13, 0, 'Lunch'], ['meal_d', 'meal_dinner', 19, 0, 'Dinner']] as $mm) {
+            $sched[] = ['type' => $mm[0], 'min' => reminder_min($s[$mm[1]] ?? '', $mm[2], $mm[3]),
+                'title' => $mm[4] . ' time', 'body' => 'Log your ' . strtolower($mm[4]) . ' — your streak is counting on you.'];
+        }
     }
-    if (!$due && ($s['reminders_water'] ?? '') === '1' && $h >= 9 && $h <= 21 && $h % 2 === 1) {
-        $due = ['type' => 'water', 'title' => 'Water break', 'body' => 'Time for a glass of water — hydration helps fat loss.'];
+    if (($s['reminders_water'] ?? '') === '1') {
+        $start = reminder_min($s['water_start'] ?? '', 9, 0);
+        $end = reminder_min($s['water_end'] ?? '', 21, 0);
+        $every = max(1, (int)($s['water_every'] ?? 2)) * 60;
+        for ($t = $start; $t <= $end; $t += $every) {
+            $sched[] = ['type' => 'water_' . $t, 'min' => $t,
+                'title' => 'Water break', 'body' => 'Time for a glass of water — hydration helps fat loss.'];
+        }
     }
-    if (!$due) return null;
-    if (($s['push_sent_' . $due['type']] ?? '') === $slot) return null; // already sent this hour
-    $due['slot'] = $slot;
-    return $due;
+
+    // Fire the first reminder whose time has passed within the last hour and
+    // hasn't been sent today. Grace covers gaps between cron runs / downtime.
+    foreach ($sched as $d) {
+        $delta = $nowMin - $d['min'];
+        if ($delta < 0 || $delta >= 60) continue;
+        if (($s['push_sent_' . $d['type']] ?? '') === $today) continue;
+        return ['type' => $d['type'], 'title' => $d['title'], 'body' => $d['body'], 'slot' => $today];
+    }
+    return null;
 }

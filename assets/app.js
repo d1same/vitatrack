@@ -2129,10 +2129,19 @@ async function renderSettings() {
 
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('bell', 16)}</span>Reminders</div>
-      <div class="muted" style="margin-bottom:12px">Pick which reminders you want, then turn on background notifications so they arrive even when the app is closed.</div>
-      ${[['reminders_water', 'Drink water (every 2h, 9am–9pm)'], ['reminders_meals', 'Meal times (8:00, 13:00, 19:00)'], ['reminders_weight', 'Morning weigh-in (8:00)']].map(([k, lbl]) => `
-        <label class="row" style="padding:8px 0;justify-content:space-between;font-size:14.5px">${lbl}
-          <input type="checkbox" data-rem="${k}" ${st[k] === '1' ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--accent)"></label>`).join('')}
+      <div class="muted" style="margin-bottom:12px">Pick which reminders you want and set your own times, then turn on background notifications so they arrive even when the app is closed.</div>
+      ${(() => { const tv = (k, d) => st[k] || d; const tin = (k, d) => `<input type="time" data-time="${k}" value="${tv(k, d)}" style="font-size:13.5px;padding:5px 7px;width:auto">`;
+        const toggle = (k, lbl) => `<label class="row" style="padding:8px 0;justify-content:space-between;font-size:14.5px">${lbl}
+          <input type="checkbox" data-rem="${k}" ${st[k] === '1' ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--accent)"></label>`;
+        return `
+        ${toggle('reminders_water', '💧 Drink water')}
+        <div class="row" style="flex-wrap:wrap;gap:6px 8px;padding:0 0 10px;font-size:13px;color:var(--text2);align-items:center">From ${tin('water_start', '09:00')} to ${tin('water_end', '21:00')} every
+          <select data-time="water_every" style="font-size:13.5px;padding:5px 7px">${[1, 2, 3, 4].map(n => `<option value="${n}" ${(parseInt(st.water_every, 10) || 2) === n ? 'selected' : ''}>${n}h</option>`).join('')}</select></div>
+        ${toggle('reminders_meals', '🍽️ Meal times')}
+        <div class="row" style="flex-wrap:wrap;gap:6px 10px;padding:0 0 10px;font-size:13px;color:var(--text2);align-items:center">Breakfast ${tin('meal_breakfast', '08:00')} Lunch ${tin('meal_lunch', '13:00')} Dinner ${tin('meal_dinner', '19:00')}</div>
+        ${toggle('reminders_weight', '⚖️ Morning weigh-in')}
+        <div class="row" style="gap:8px;padding:0 0 6px;font-size:13px;color:var(--text2);align-items:center">At ${tin('weigh_time', '08:00')}</div>`;
+      })()}
       <div class="spacer"></div>
       <button class="btn small secondary" id="sPush" style="width:100%">Checking…</button>
       <div id="notifState" class="tiny" style="margin-top:8px"></div>
@@ -2216,6 +2225,13 @@ async function renderSettings() {
     await api('save_settings', { [cb.dataset.rem]: cb.checked ? '1' : '0' });
     S.settings[cb.dataset.rem] = cb.checked ? '1' : '0';
     updateNotifState();
+  });
+  document.querySelectorAll('[data-time]').forEach(el => el.onchange = async () => {
+    const k = el.dataset.time, v = el.value;
+    if (!v) return;
+    S.settings[k] = v;
+    await api('save_settings', { [k]: v });
+    toast('Reminder time updated');
   });
   const updateNotifState = () => {
     const el = $('#notifState'); if (!el) return;
@@ -2352,24 +2368,40 @@ function notify(title, body, tag) {
     try { new Notification(title, { body, tag }); } catch (e) { /* mobile requires SW */ }
   }
 }
+// Parse an "HH:MM" setting into [hour, minute], falling back to a default.
+function parseHM(v, dh, dm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v || '');
+  return m ? [(+m[1]) % 24, (+m[2]) % 60] : [dh, dm];
+}
+// Build the full reminder schedule from the user's settings. Shared shape with
+// the server's compute_due_reminder() so in-app and push reminders match.
+function reminderSchedule(st) {
+  st = st || {};
+  const out = [];
+  if (st.reminders_weight === '1') {
+    const [h, m] = parseHM(st.weigh_time, 8, 0);
+    out.push({ type: 'weigh', h, m, emoji: '⚖️', title: 'Morning weigh-in', body: 'Best time to weigh: after waking, before eating. Log it now.', tag: 'weigh' });
+  }
+  if (st.reminders_meals === '1') {
+    [['meal_b', st.meal_breakfast, 8, 0, 'Breakfast'], ['meal_l', st.meal_lunch, 13, 0, 'Lunch'], ['meal_d', st.meal_dinner, 19, 0, 'Dinner']]
+      .forEach(([type, v, dh, dm, label]) => { const [h, m] = parseHM(v, dh, dm); out.push({ type, h, m, emoji: '🍽️', title: label + ' time', body: 'Log your ' + label.toLowerCase() + ' — check Recipes for an idea.', tag: 'meal' }); });
+  }
+  if (st.reminders_water === '1') {
+    const [sh, sm] = parseHM(st.water_start, 9, 0), [eh, em] = parseHM(st.water_end, 21, 0);
+    const every = Math.max(1, parseInt(st.water_every, 10) || 2), endMin = eh * 60 + em;
+    for (let t = sh * 60 + sm; t <= endMin; t += every * 60) out.push({ type: 'water_' + t, h: Math.floor(t / 60), m: t % 60, emoji: '💧', title: 'Water break', body: 'Time for a glass of water — stay hydrated.', tag: 'water' });
+  }
+  return out;
+}
 function reminderTick() {
   if (!S.user || !S.profile?.onboarded) return;
   if (S._pushOn) return; // server-side push handles reminders on this device
-  const st = S.settings, now = new Date(), h = now.getHours(), mi = now.getMinutes();
-  const fired = key => {
-    const k = 'vt_rem_' + key + '_' + todayStr() + '_' + h;
-    if (localStorage.getItem(k)) return true;
-    localStorage.setItem(k, '1'); return false;
-  };
-  if (st.reminders_water === '1' && h >= 9 && h <= 21 && h % 2 === 1 && mi < 2 && !fired('water')) {
-    notify('💧 Water break!', 'Time for a glass of water — stay hydrated to burn fat efficiently.', 'water');
-  }
-  if (st.reminders_meals === '1' && mi < 2 && [8, 13, 19].includes(h) && !fired('meal')) {
-    const meal = h === 8 ? 'breakfast' : h === 13 ? 'lunch' : 'dinner';
-    notify('🍽️ ' + meal[0].toUpperCase() + meal.slice(1) + ' time', 'Log your ' + meal + ' — check Recipes for a keto idea!', 'meal');
-  }
-  if (st.reminders_weight === '1' && h === 8 && mi < 2 && !fired('weigh')) {
-    notify('⚖️ Morning weigh-in', 'Best time to weigh: after waking, before eating. Log it now!', 'weigh');
+  const now = new Date(), h = now.getHours(), mi = now.getMinutes();
+  for (const r of reminderSchedule(S.settings)) {
+    if (r.h === h && r.m === mi) {
+      const k = 'vt_rem_' + r.type + '_' + todayStr();
+      if (!localStorage.getItem(k)) { localStorage.setItem(k, '1'); notify(r.emoji + ' ' + r.title, r.body, r.tag); }
+    }
   }
   // tidy old localStorage flags occasionally
   if (Math.floor(Date.now() / 6e4) % 720 === 0) {
