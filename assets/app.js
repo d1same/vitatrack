@@ -2392,23 +2392,35 @@ async function render() {
 
 // ══ BOOT ══════════════════════════════════════════════════════════════
 // ══ HEALTH CONNECT SYNC ═══════════════════════════════════════════════
-// Runs only inside the native Capacitor companion (window.Capacitor.Plugins.Health).
-// In a normal browser / the TWA there's no plugin, so this is a silent no-op.
-function hasHealthPlugin() { return !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Health); }
+// Runs only inside the native Capacitor companion. The remote-loaded web app
+// doesn't bundle @capacitor/core, so window.Capacitor.Plugins isn't populated —
+// we call the native Health plugin straight through the injected bridge
+// (window.Capacitor.toNative). In a browser/TWA there's no bridge → silent no-op.
+function inNativeApp() { return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()); }
+function hasHealthPlugin() { return inNativeApp() && typeof window.Capacitor.toNative === 'function'; }
+function capCall(plugin, method, options) {
+  return new Promise((resolve, reject) => {
+    if (!window.Capacitor || typeof window.Capacitor.toNative !== 'function') return reject(new Error('no native bridge'));
+    try { window.Capacitor.toNative(plugin, method, options || {}, { resolve, reject }); } catch (e) { reject(e); }
+  });
+}
+const HC = (method, options) => capCall('Health', method, options);
 function prettyWorkout(t) { return t ? String(t).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Workout'; }
 
 async function syncHealthConnect(manual) {
-  const H = hasHealthPlugin() ? window.Capacitor.Plugins.Health : null;
-  if (!H || !S.user) { if (manual) toast('Open Thrive from the installed Android app to sync'); return; }
+  if (!hasHealthPlugin() || !S.user) {
+    if (manual) toast(!S.user ? 'Sign in first, then sync' : !window.Capacitor ? 'No native bridge — open this in the Thrive Android app (thrive.apk)' : 'Health bridge unavailable — reinstall the latest thrive.apk');
+    return;
+  }
   if (S._hcSyncing) return; S._hcSyncing = true;
   try {
-    const avail = await H.isHealthAvailable();
+    const avail = await HC('isHealthAvailable');
     if (!avail || !avail.available) { if (manual) toast('Health Connect isn’t set up on this device'); return; }
     const perms = { permissions: ['READ_STEPS', 'READ_WORKOUTS', 'READ_ACTIVE_CALORIES', 'READ_HEART_RATE'] };
     let pr = null;
-    try { pr = await H.checkHealthPermissions(perms); } catch (e) {}
-    const granted = pr && Array.isArray(pr.permissions) && pr.permissions.some(Boolean);
-    if (!granted) { try { pr = await H.requestHealthPermissions(perms); } catch (e) {} }
+    try { pr = await HC('checkHealthPermissions', perms); } catch (e) {}
+    const granted = pr && Array.isArray(pr.permissions) && pr.permissions.some(p => p && Object.values(p).some(Boolean));
+    if (!granted) { try { pr = await HC('requestHealthPermissions', perms); } catch (e) {} }
 
     const iso = d => d.toISOString();
     const dayKey = t => new Date(t).toISOString().slice(0, 10);
@@ -2416,12 +2428,12 @@ async function syncHealthConnect(manual) {
     const metrics = [], workouts = [];
 
     try {
-      const s = await H.queryAggregated({ startDate: iso(start), endDate: iso(end), dataType: 'steps', bucket: 'day' });
+      const s = await HC('queryAggregated', { startDate: iso(start), endDate: iso(end), dataType: 'steps', bucket: 'day' });
       for (const b of (s && s.aggregatedData || [])) if (b.value > 0) metrics.push({ date: dayKey(b.startDate), type: 'steps', value: Math.round(b.value) });
     } catch (e) {}
 
     try {
-      const w = await H.queryWorkouts({ startDate: iso(start), endDate: iso(end), includeHeartRate: false, includeRoute: false });
+      const w = await HC('queryWorkouts', { startDate: iso(start), endDate: iso(end), includeHeartRate: false, includeRoute: false });
       for (const r of (w && w.workouts || [])) {
         const mins = Math.round((r.duration || ((new Date(r.endDate) - new Date(r.startDate)) / 1000)) / 60);
         if (mins <= 0) continue;
