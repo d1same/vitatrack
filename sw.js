@@ -1,6 +1,6 @@
 // Service worker: offline shell cache + notification display.
-const CACHE = 'vitatrack-v27';
-const SHELL = ['./index.php', './assets/app.css?v=27', './assets/app.js?v=27', './assets/fonts/InterVariable.woff2', './icons/icon.svg'];
+const CACHE = 'vitatrack-v28';
+const SHELL = ['./index.php', './assets/app.css?v=28', './assets/app.js?v=28', './assets/fonts/InterVariable.woff2', './icons/icon.svg', './icons/badge.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -34,7 +34,7 @@ self.addEventListener('message', e => {
     self.registration.showNotification(d.title || 'Thrive', {
       body: d.body || '',
       icon: './icons/icon-180.png',
-      badge: './icons/icon-180.png',
+      badge: './icons/badge.png',
       tag: d.tag || 'vitatrack',
     });
   }
@@ -51,7 +51,7 @@ self.addEventListener('push', e => {
         return self.registration.showNotification(n.title, {
           body: n.body,
           icon: './icons/icon-180.png',
-          badge: './icons/icon-180.png',
+          badge: './icons/badge.png',
           tag: 'vt-reminder',
         });
       })
