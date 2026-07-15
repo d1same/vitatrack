@@ -687,7 +687,7 @@ async function renderHome() {
       <button class="quick-btn" onclick="openAddSheet()">${ic('utensils', 20)}<span>Food</span></button>
       <button class="quick-btn" onclick="openAddSheet(null,'barcode')">${ic('barcode', 20)}<span>Scan</span></button>
       <button class="quick-btn" onclick="openAddSheet(null,'photo')">${ic('camera', 20)}<span>Photo</span></button>
-      <button class="quick-btn" onclick="openWeightSheet()">${ic('scale', 20)}<span>Weigh</span></button>
+      <button class="quick-btn" onclick="S.view='workouts';render()">${ic('dumbbell', 20)}<span>Workout</span></button>
     </div>
 
     <div class="grid2">${fastTile}${waterTile}</div>
