@@ -2467,7 +2467,7 @@ function capCall(plugin, method, options) {
     try { window.Capacitor.toNative(plugin, method, options || {}, { resolve, reject }); } catch (e) { reject(e); }
   });
 }
-const HC = (method, options) => capCall('Health', method, options);
+const HC = (method, options) => capCall('HealthPlugin', method, options);
 function prettyWorkout(t) { return t ? String(t).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Workout'; }
 
 async function syncHealthConnect(manual) {
