@@ -10,7 +10,6 @@ require __DIR__ . '/includes/calc.php';
 require __DIR__ . '/includes/ai.php';
 require __DIR__ . '/includes/off.php';
 require __DIR__ . '/includes/push.php';
-require __DIR__ . '/includes/cookunity.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -33,7 +32,7 @@ function get_settings(int $uid): array {
     $out = [];
     foreach ($st->fetchAll() as $r) $out[$r['key']] = $r['value'];
     // never send secrets back to the client
-    unset($out['anthropic_key'], $out['cookunity_pass'], $out['cookunity_token'], $out['cookunity_token_exp']);
+    unset($out['anthropic_key']);
     return $out;
 }
 function public_user(array $u): array { return ['id' => $u['id'], 'name' => $u['name'], 'email' => $u['email']]; }
@@ -766,38 +765,6 @@ case 'cron_url': {
     $dir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/'));
     $base = rtrim($scheme . '://' . $host . $dir, '/');
     out(['ok' => true, 'url' => $base . '/cron.php?token=' . $key]);
-}
-
-// ── CookUnity (opt-in meal-delivery integration) ─────────────────────
-case 'cookunity_save': {
-    $uid = require_user();
-    $email = trim((string)($in['email'] ?? ''));
-    $pass = (string)($in['password'] ?? '');
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $pass === '') fail('Enter your CookUnity email and password');
-    $auth = cu_authenticate($email, $pass); // validate before storing
-    if (isset($auth['error'])) fail($auth['error']);
-    $up = db()->prepare("INSERT INTO settings (user_id,key,value) VALUES (?,?,?) ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value");
-    $up->execute([$uid, 'cookunity_email', $email]);
-    $up->execute([$uid, 'cookunity_pass', $pass]);
-    $up->execute([$uid, 'cookunity_token', $auth['token']]);
-    $up->execute([$uid, 'cookunity_token_exp', (string)$auth['expires']]);
-    $up->execute([$uid, 'cookunity_on', '1']);
-    out(['ok' => true, 'settings' => get_settings($uid)]);
-}
-
-case 'cookunity_disconnect': {
-    $uid = require_user();
-    db()->prepare("DELETE FROM settings WHERE user_id=? AND key IN
-        ('cookunity_email','cookunity_pass','cookunity_token','cookunity_token_exp','cookunity_on')")
-      ->execute([$uid]);
-    out(['ok' => true, 'settings' => get_settings($uid)]);
-}
-
-case 'cookunity_meals': {
-    $uid = require_user();
-    $r = cu_upcoming_meals(db(), $uid);
-    if (isset($r['error'])) fail($r['error']);
-    out($r);
 }
 
 // ── AI photo scan ────────────────────────────────────────────────────
