@@ -258,7 +258,7 @@ function renderAuth(mode = 'login') {
         : mode === 'forgot' ? 'Remembered it? <b id="aSwap">Sign in</b>'
         : 'New here? <b id="aSwap">Create an account</b>'}
     </div>
-    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk" download style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
+    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=2" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
   </div>`;
   $('#aSwap').onclick = () => renderAuth(mode === 'login' ? 'register' : 'login');
   const fg = $('#aForgot');
@@ -1385,7 +1385,7 @@ function renderGetApp() {
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('smartphone', 16)}</span>Android app</div>
       <div class="muted" style="margin-bottom:14px">Install Thrive as a real Android app — home-screen icon, full screen, and <b>Health Connect sync</b> (steps &amp; workouts from Samsung Health, Fitbit, your ring or watch).</div>
-      <a class="btn" href="./thrive.apk" download style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
+      <a class="btn" href="./thrive.apk?b=2" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
       <div class="tiny muted" style="margin-top:10px;line-height:1.6">After it downloads, tap the file and choose <b>Install</b>. If Android asks, allow installs from your browser this once. About 5&nbsp;MB. If you have an older "Thrive" installed, uninstall it first.</div>
     </div>`;
 

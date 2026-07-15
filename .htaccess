@@ -20,4 +20,9 @@ RedirectMatch 404 ^/(\.git|capacitor-app|android-app|node_modules)(/|$)
 <IfModule mod_headers.c>
   Header set X-Frame-Options "SAMEORIGIN"
   Header set X-Content-Type-Options "nosniff"
+  # Don't let Cloudflare/browsers cache the APK — otherwise a new build keeps
+  # serving the old cached file. (The download link is also cache-busted.)
+  <FilesMatch "\.apk$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </FilesMatch>
 </IfModule>
