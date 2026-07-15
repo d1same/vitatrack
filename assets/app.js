@@ -2478,7 +2478,9 @@ async function syncHealthConnect(manual) {
     if (!granted) { try { pr = await HC('requestHealthPermissions', perms); } catch (e) {} }
 
     const iso = d => d.toISOString();
-    const dayKey = t => new Date(t).toISOString().slice(0, 10);
+    // Local calendar date (matches the app's todayStr) so today's steps land
+    // on today — NOT toISOString(), which is UTC and shifts the day by the tz.
+    const dayKey = t => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
     const end = new Date(), start = new Date(Date.now() - 7 * 864e5);
     const metrics = [], workouts = [];
 
@@ -2496,9 +2498,18 @@ async function syncHealthConnect(manual) {
       }
     } catch (e) {}
 
-    if (!metrics.length && !workouts.length) { if (manual) toast('No Health Connect data in the last 7 days'); return; }
+    if (!metrics.length && !workouts.length) {
+      if (manual) toast('Health Connect returned no steps or workouts. Make sure an app (Samsung Health, Google Fit, Fitbit, your watch) is writing your steps into Health Connect.');
+      return;
+    }
     const res = await api('sync_health', { source: 'health_connect', metrics, workouts });
-    if (res && res.ok && manual) { toast(`Synced ${res.metrics_synced || 0} points · ${res.workouts_synced || 0} workouts`); if (S.view === 'settings') render(); }
+    if (res && res.ok) {
+      if (manual) {
+        const todaySteps = (metrics.find(m => m.type === 'steps' && m.date === todayStr()) || {}).value || 0;
+        toast(`Synced ✓ ${todaySteps.toLocaleString()} steps today · ${metrics.length} day(s) · ${workouts.length} workout(s)`);
+      }
+      if (S.view === 'home' || S.view === 'settings' || S.view === 'progress') render();
+    }
   } catch (e) { if (manual) toast('Sync failed: ' + (e.message || e)); }
   finally { S._hcSyncing = false; }
 }
