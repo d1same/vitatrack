@@ -8,6 +8,7 @@
 }
 
 :root {
+  color-scheme: light;
   --bg: #f4f5f7;
   --bg-glow1: rgba(13, 110, 84, 0.05);
   --bg-glow2: rgba(30, 58, 95, 0.04);
@@ -32,6 +33,7 @@
   --font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 html[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0c1015;
   --bg-glow1: rgba(18, 134, 106, 0.06);
   --bg-glow2: rgba(47, 111, 178, 0.05);
@@ -114,8 +116,10 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 .rem-line .rem-ctl { display: flex; align-items: center; gap: 6px; }
 .rem-time {
   font-size: 13.5px; padding: 6px 9px; width: auto; min-width: 0;
-  border-radius: 10px;
+  border-radius: 10px; background: var(--surface2); color: var(--text);
+  border: 1.5px solid transparent; outline: none; transition: border 0.2s, background 0.2s;
 }
+.rem-time:focus { border-color: var(--accent); background: var(--surface); }
 .rem-detail + .rem-row { border-top: 1px solid var(--border); }
 
 /* ── Layout ── */
