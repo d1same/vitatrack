@@ -213,8 +213,13 @@ case 'day': {
     $st = db()->prepare("SELECT weight_kg FROM weights WHERE user_id=? ORDER BY date DESC LIMIT 1");
     $st->execute([$uid]);
     $lastWeight = $st->fetch()['weight_kg'] ?? null;
+    // Today's biometrics (steps, sleep, rhr…) — Health Connect sync fills these.
+    $st = db()->prepare("SELECT type, v1, v2 FROM biometrics WHERE user_id=? AND date=? ORDER BY id");
+    $st->execute([$uid, $date]);
+    $bio = [];
+    foreach ($st->fetchAll() as $b) $bio[$b['type']] = ['v1' => $b['v1'], 'v2' => $b['v2']];
     out(['ok' => true, 'date' => $date, 'entries' => $entries, 'water' => $water,
-         'workouts' => $workouts, 'active_fast' => $activeFast, 'last_weight' => $lastWeight]);
+         'workouts' => $workouts, 'active_fast' => $activeFast, 'last_weight' => $lastWeight, 'bio' => $bio]);
 }
 
 // ── Food & diary ─────────────────────────────────────────────────────

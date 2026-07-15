@@ -637,6 +637,26 @@ async function renderHome() {
       <div class="tiny" style="margin-top:6px">Tap for +${glassLabel()} · <u onclick="event.stopPropagation();addWater(-${glass})">undo</u></div>
     </div>`;
 
+  // Activity today (steps & sleep from Health Connect, workouts from the log)
+  const bio = day.bio || {};
+  const steps = bio.steps ? Math.round(+bio.steps.v1) : null;
+  const sleepH = bio.sleep ? +bio.sleep.v1 : null;
+  const wk = day.workouts || [], wkKcal = wk.reduce((a, w) => a + (+w.kcal || 0), 0);
+  const hasActivity = steps != null || sleepH != null || wk.length > 0;
+  const actTile = (icn, color, val, lbl) => `<div class="stat-tile"><div class="emoji" style="color:var(--${color})">${ic(icn, 20)}</div><div class="v">${val}</div><div class="k">${lbl}</div></div>`;
+  const activityCard = `
+    <div class="card" onclick="S.view='progress';render()" style="cursor:pointer">
+      <div class="card-title" style="margin-bottom:12px"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('activity', 15)}</span>Activity today</div>
+      <div class="grid3">
+        ${actTile('activity', 'accent', steps != null ? steps.toLocaleString() : '—', 'Steps')}
+        ${actTile('dumbbell', 'blue', wk.length || '—', 'Workout' + (wk.length === 1 ? '' : 's'))}
+        ${actTile('moon', 'purple', sleepH != null ? sleepH + 'h' : '—', 'Sleep')}
+      </div>
+      ${hasActivity
+        ? (wkKcal > 0 ? `<div class="tiny" style="margin-top:10px;color:var(--text2)">${wk.length} workout${wk.length === 1 ? '' : 's'} · ${Math.round(wkKcal)} kcal burned</div>` : '')
+        : `<div class="tiny" style="margin-top:10px;color:var(--text2)">Install the Thrive Android app and sync <b>Health Connect</b> to auto-fill steps &amp; workouts.</div>`}
+    </div>`;
+
   shell(`<div class="screen">
     <div class="screen-header">
       <div><div class="screen-sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
@@ -684,6 +704,8 @@ async function renderHome() {
         <button class="btn small secondary" onclick="event.stopPropagation();openWeightSheet()">Log</button>
       </div>
     </div>
+
+    ${activityCard}
 
     <div id="coachCard"></div>
   </div>`);
