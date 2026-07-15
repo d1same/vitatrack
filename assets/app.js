@@ -2478,7 +2478,13 @@ async function syncHealthConnect(manual) {
   if (S._hcSyncing) return; S._hcSyncing = true;
   try {
     const avail = await HC('isHealthAvailable');
-    if (!avail || !avail.available) { if (manual) toast('Health Connect isn’t set up on this device'); return; }
+    if (!avail || !avail.available) {
+      if (manual) {
+        toast('This needs the free Health Connect app. Opening the Play Store — install it, then come back and tap Sync.');
+        try { await HC('showHealthConnectInPlayStore'); } catch (e) { try { await HC('openHealthConnectSettings'); } catch (e2) {} }
+      }
+      return;
+    }
     const perms = { permissions: ['READ_STEPS', 'READ_WORKOUTS', 'READ_ACTIVE_CALORIES', 'READ_HEART_RATE'] };
     let pr = null;
     try { pr = await HC('checkHealthPermissions', perms); } catch (e) {}
