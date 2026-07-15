@@ -2,6 +2,13 @@
 DirectoryIndex index.php
 Options -Indexes
 
+# Defense-in-depth: never serve source, VCS, build or config files.
+# (The clean setup is to check the git repo out OUTSIDE the web root.)
+RedirectMatch 404 ^/(\.git|capacitor-app|android-app|node_modules)(/|$)
+<FilesMatch "^(\.cpanel\.yml|\.gitignore|\.gitattributes|README\.md|HEALTHCONNECT\.md|package(-lock)?\.json)$">
+  Require all denied
+</FilesMatch>
+
 # Use PHP 8.3 (cPanel/EasyApache handler). If your host offers a different
 # 8.x version, change ea-php83 to ea-php82 / ea-php81 accordingly.
 <IfModule mime_module>
