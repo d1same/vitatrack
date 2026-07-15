@@ -2147,6 +2147,9 @@ async function renderSettings() {
         const toggle = (k, lbl) => `<label class="rem-row">${lbl}<input type="checkbox" data-rem="${k}" ${on(k) ? 'checked' : ''}></label>`;
         const line = (label, ctl) => `<div class="rem-line"><span>${label}</span><span class="rem-ctl">${ctl}</span></div>`;
         const detail = (k, inner) => `<div class="rem-detail" data-for="${k}"${on(k) ? '' : ' hidden'}>${inner}</div>`;
+        const chk = (k, def) => `<input type="checkbox" class="rem-chk" data-mealon="${k}" ${(st[k] ?? def) !== '0' ? 'checked' : ''}>`;
+        // meal row: per-meal on/off toggle + its time
+        const meal = (label, key, timeKey, d) => `<div class="rem-line"><span>${label}</span><span class="rem-ctl">${chk('meal_' + key + '_on', '1')}${tin(timeKey, d)}</span></div>`;
         return `
         ${toggle('reminders_water', '💧 Drink water')}
         ${detail('reminders_water',
@@ -2155,9 +2158,10 @@ async function renderSettings() {
           line('Remind every', `<select data-time="water_every" class="rem-time">${[1, 2, 3, 4].map(n => `<option value="${n}" ${(parseInt(st.water_every, 10) || 2) === n ? 'selected' : ''}>${n} hour${n > 1 ? 's' : ''}</option>`).join('')}</select>`))}
         ${toggle('reminders_meals', '🍽️ Meal times')}
         ${detail('reminders_meals',
-          line('Breakfast', tin('meal_breakfast', '08:00')) +
-          line('Lunch', tin('meal_lunch', '13:00')) +
-          line('Dinner', tin('meal_dinner', '19:00')))}
+          meal('Breakfast', 'breakfast', 'meal_breakfast', '08:00') +
+          meal('Lunch', 'lunch', 'meal_lunch', '13:00') +
+          meal('Dinner', 'dinner', 'meal_dinner', '19:00') +
+          line('Pause while fasting', chk('meals_skip_fasting', '1')))}
         ${toggle('reminders_weight', '⚖️ Morning weigh-in')}
         ${detail('reminders_weight', line('Time', tin('weigh_time', '08:00')))}`;
       })()}
@@ -2263,6 +2267,11 @@ async function renderSettings() {
     S.settings[k] = v;
     await api('save_settings', { [k]: v });
     toast('Reminder time updated');
+  });
+  document.querySelectorAll('[data-mealon]').forEach(cb => cb.onchange = async () => {
+    const k = cb.dataset.mealon, v = cb.checked ? '1' : '0';
+    S.settings[k] = v;
+    await api('save_settings', { [k]: v });
   });
   const updateNotifState = () => {
     const el = $('#notifState'); if (!el) return;
@@ -2414,8 +2423,12 @@ function reminderSchedule(st) {
     out.push({ type: 'weigh', h, m, emoji: '⚖️', title: 'Morning weigh-in', body: 'Best time to weigh: after waking, before eating. Log it now.', tag: 'weigh' });
   }
   if (st.reminders_meals === '1') {
-    [['meal_b', st.meal_breakfast, 8, 0, 'Breakfast'], ['meal_l', st.meal_lunch, 13, 0, 'Lunch'], ['meal_d', st.meal_dinner, 19, 0, 'Dinner']]
-      .forEach(([type, v, dh, dm, label]) => { const [h, m] = parseHM(v, dh, dm); out.push({ type, h, m, emoji: '🍽️', title: label + ' time', body: 'Log your ' + label.toLowerCase() + ' — check Recipes for an idea.', tag: 'meal' }); });
+    [['meal_b', 'breakfast', st.meal_breakfast, 8, 0, 'Breakfast'], ['meal_l', 'lunch', st.meal_lunch, 13, 0, 'Lunch'], ['meal_d', 'dinner', st.meal_dinner, 19, 0, 'Dinner']]
+      .forEach(([type, key, v, dh, dm, label]) => {
+        if (st['meal_' + key + '_on'] === '0') return; // this meal is turned off
+        const [h, m] = parseHM(v, dh, dm);
+        out.push({ type, h, m, emoji: '🍽️', title: label + ' time', body: 'Log your ' + label.toLowerCase() + ' — check Recipes for an idea.', tag: 'meal' });
+      });
   }
   if (st.reminders_water === '1') {
     const [sh, sm] = parseHM(st.water_start, 9, 0), [eh, em] = parseHM(st.water_end, 21, 0);
@@ -2428,7 +2441,9 @@ function reminderTick() {
   if (!S.user || !S.profile?.onboarded) return;
   if (S._pushOn) return; // server-side push handles reminders on this device
   const now = new Date(), h = now.getHours(), mi = now.getMinutes();
+  const fasting = S.settings.meals_skip_fasting !== '0' && !!S.day?.active_fast;
   for (const r of reminderSchedule(S.settings)) {
+    if (r.tag === 'meal' && fasting) continue; // don't nag about meals mid-fast
     if (r.h === h && r.m === mi) {
       const k = 'vt_rem_' + r.type + '_' + todayStr();
       if (!localStorage.getItem(k)) { localStorage.setItem(k, '1'); notify(r.emoji + ' ' + r.title, r.body, r.tag); }

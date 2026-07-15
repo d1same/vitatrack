@@ -106,10 +106,18 @@ function compute_due_reminder(PDO $pdo, int $uid, int $tzMin): ?array {
         $sched[] = ['type' => 'weigh', 'min' => reminder_min($s['weigh_time'] ?? '', 8, 0),
             'title' => 'Morning weigh-in', 'body' => 'Best time to weigh: after waking, before eating. Log it now.'];
     }
-    if (($s['reminders_meals'] ?? '') === '1') {
-        foreach ([['meal_b', 'meal_breakfast', 8, 0, 'Breakfast'], ['meal_l', 'meal_lunch', 13, 0, 'Lunch'], ['meal_d', 'meal_dinner', 19, 0, 'Dinner']] as $mm) {
-            $sched[] = ['type' => $mm[0], 'min' => reminder_min($s[$mm[1]] ?? '', $mm[2], $mm[3]),
-                'title' => $mm[4] . ' time', 'body' => 'Log your ' . strtolower($mm[4]) . ' — your streak is counting on you.'];
+    // Skip meal reminders entirely while a fast is running (if opted in).
+    $skipMeals = false;
+    if (($s['meals_skip_fasting'] ?? '1') !== '0') {
+        $af = $pdo->prepare("SELECT 1 FROM fasts WHERE user_id=? AND end_ts IS NULL LIMIT 1");
+        $af->execute([$uid]);
+        $skipMeals = (bool)$af->fetchColumn();
+    }
+    if (!$skipMeals && ($s['reminders_meals'] ?? '') === '1') {
+        foreach ([['meal_b', 'breakfast', 'meal_breakfast', 8, 0, 'Breakfast'], ['meal_l', 'lunch', 'meal_lunch', 13, 0, 'Lunch'], ['meal_d', 'dinner', 'meal_dinner', 19, 0, 'Dinner']] as $mm) {
+            if (($s['meal_' . $mm[1] . '_on'] ?? '1') === '0') continue; // this meal turned off
+            $sched[] = ['type' => $mm[0], 'min' => reminder_min($s[$mm[2]] ?? '', $mm[3], $mm[4]),
+                'title' => $mm[5] . ' time', 'body' => 'Log your ' . strtolower($mm[5]) . ' — your streak is counting on you.'];
         }
     }
     if (($s['reminders_water'] ?? '') === '1') {

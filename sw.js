@@ -1,6 +1,6 @@
 // Service worker: offline shell cache + notification display.
-const CACHE = 'vitatrack-v38';
-const SHELL = ['./index.php', './assets/app.css?v=38', './assets/app.js?v=38', './assets/fonts/InterVariable.woff2', './icons/icon.svg', './icons/badge.png'];
+const CACHE = 'vitatrack-v39';
+const SHELL = ['./index.php', './assets/app.css?v=39', './assets/app.js?v=39', './assets/fonts/InterVariable.woff2', './icons/icon.svg', './icons/badge.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
