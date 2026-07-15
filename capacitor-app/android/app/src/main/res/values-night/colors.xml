@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Background shown behind the status bar / nav bar insets (dark mode). -->
+    <color name="app_bg">#0C1015</color>
+</resources>

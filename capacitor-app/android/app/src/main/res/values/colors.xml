@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Background shown behind the status bar / nav bar insets (light mode). -->
+    <color name="app_bg">#F4F5F7</color>
+</resources>
