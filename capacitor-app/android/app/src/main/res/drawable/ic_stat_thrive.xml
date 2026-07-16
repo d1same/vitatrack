@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome notification status-bar icon: a filled heart (Android uses the
+     alpha as the silhouette and tints it). Heart scaled up to fill the icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group android:scaleX="1.4" android:scaleY="1.4" android:pivotX="256" android:pivotY="250">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M256 400c-6 0-11-2-15-6-14-13-51-45-77-74-24-27-38-53-38-82 0-42 32-74 72-74 22 0 43 10 58 27 15-17 36-27 58-27 40 0 72 32 72 74 0 29-14 55-38 82-26 29-63 61-77 74-4 4-9 6-15 6z" />
+    </group>
+</vector>

@@ -5,5 +5,11 @@
   "server": {
     "url": "https://health.mobasheri.us",
     "cleartext": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_thrive",
+      "iconColor": "#0F5C46"
+    }
   }
 }

@@ -258,7 +258,7 @@ function renderAuth(mode = 'login') {
         : mode === 'forgot' ? 'Remembered it? <b id="aSwap">Sign in</b>'
         : 'New here? <b id="aSwap">Create an account</b>'}
     </div>
-    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=2" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
+    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=4" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
   </div>`;
   $('#aSwap').onclick = () => renderAuth(mode === 'login' ? 'register' : 'login');
   const fg = $('#aForgot');
@@ -1385,7 +1385,7 @@ function renderGetApp() {
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('smartphone', 16)}</span>Android app</div>
       <div class="muted" style="margin-bottom:14px">Install Thrive as a real Android app — home-screen icon, full screen, and <b>Health Connect sync</b> (steps &amp; workouts from Samsung Health, Fitbit, your ring or watch).</div>
-      <a class="btn" href="./thrive.apk?b=2" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
+      <a class="btn" href="./thrive.apk?b=4" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
       <div class="tiny muted" style="margin-top:10px;line-height:1.6">After it downloads, tap the file and choose <b>Install</b>. If Android asks, allow installs from your browser this once. About 5&nbsp;MB. If you have an older "Thrive" installed, uninstall it first.</div>
     </div>`;
 
@@ -2242,19 +2242,19 @@ async function renderSettings() {
     S.settings[cb.dataset.rem] = cb.checked ? '1' : '0';
     const det = document.querySelector(`.rem-detail[data-for="${cb.dataset.rem}"]`);
     if (det) det.hidden = !cb.checked;
-    updateNotifState();
+    updateNotifState(); scheduleNativeNotifications();
   });
   document.querySelectorAll('[data-time]').forEach(el => el.onchange = async () => {
     const k = el.dataset.time, v = el.value;
     if (!v) return;
     S.settings[k] = v;
     await api('save_settings', { [k]: v });
-    toast('Reminder time updated');
+    toast('Reminder time updated'); scheduleNativeNotifications();
   });
   document.querySelectorAll('[data-mealon]').forEach(cb => cb.onchange = async () => {
     const k = cb.dataset.mealon, v = cb.checked ? '1' : '0';
     S.settings[k] = v;
-    await api('save_settings', { [k]: v });
+    await api('save_settings', { [k]: v }); scheduleNativeNotifications();
   });
   const updateNotifState = () => {
     const el = $('#notifState'); if (!el) return;
@@ -2298,6 +2298,17 @@ async function renderSettings() {
   // Background push (works even when the app is closed — needs a scheduler pinging cron.php)
   const setPushBtn = async () => {
     const btn = $('#sPush'); if (!btn) return;
+    if (inNativeApp()) {
+      // The native app fires its own Android notifications — hide the web-push
+      // button (it would double up and show the browser icon) and drop any old
+      // web-push subscription so the cron doesn't also send browser notifications.
+      btn.style.display = 'none';
+      const ns = $('#notifState'); if (ns) ns.textContent = 'Reminders are delivered by the Thrive app at the times above.';
+      const ch = $('#cronHelp'); if (ch) ch.innerHTML = '';
+      try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) { await api('push_unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); } } catch (e) {}
+      S._pushOn = false;
+      return;
+    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       btn.textContent = 'Background notifications not supported in this browser';
       btn.disabled = true; return;
@@ -2410,6 +2421,7 @@ function reminderSchedule(st) {
 }
 function reminderTick() {
   if (!S.user || !S.profile?.onboarded) return;
+  if (inNativeApp()) return; // native app uses scheduled Android notifications
   if (S._pushOn) return; // server-side push handles reminders on this device
   const now = new Date(), h = now.getHours(), mi = now.getMinutes();
   const fasting = S.settings.meals_skip_fasting !== '0' && !!S.day?.active_fast;
@@ -2513,8 +2525,37 @@ async function syncHealthConnect(manual) {
   } catch (e) { if (manual) toast('Sync failed: ' + (e.message || e)); }
   finally { S._hcSyncing = false; }
 }
-// Auto-sync when the native app opens or returns to the foreground.
-document.addEventListener('visibilitychange', () => { if (!document.hidden && hasHealthPlugin()) syncHealthConnect(false); });
+
+// ══ NATIVE NOTIFICATIONS (Capacitor app) ══════════════════════════════
+// In the native app, fire reminders through Android's own notification
+// system (owned by Thrive → shows the Thrive icon, opens the app) instead
+// of web push (owned by the browser → wrong icon, opens Chrome). Also means
+// no server cron is needed. IDs 3000–3099 are ours.
+async function scheduleNativeNotifications() {
+  if (!inNativeApp() || !S.user || !+S.profile?.onboarded) return;
+  const LN = 'LocalNotifications';
+  try { await capCall(LN, 'requestPermissions', {}); } catch (e) {}
+  try {
+    const p = await capCall(LN, 'getPending', {});
+    const ours = ((p && p.notifications) || []).filter(n => n.id >= 3000 && n.id < 3100).map(n => ({ id: n.id }));
+    if (ours.length) await capCall(LN, 'cancel', { notifications: ours });
+  } catch (e) {}
+  const notifs = reminderSchedule(S.settings).map((r, i) => ({
+    id: 3000 + i,
+    title: r.emoji + ' ' + r.title,
+    body: r.body,
+    schedule: { on: { hour: r.h, minute: r.m }, allowWhileIdle: true },
+    smallIcon: 'ic_stat_thrive',
+  }));
+  try { if (notifs.length) await capCall(LN, 'schedule', { notifications: notifs }); } catch (e) {}
+}
+
+// Auto-sync + reschedule native reminders when the app opens/foregrounds.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (hasHealthPlugin()) syncHealthConnect(false);
+  if (inNativeApp()) scheduleNativeNotifications();
+});
 
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.installPrompt = e; });
 (async function boot() {
@@ -2535,4 +2576,5 @@ window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.inst
   applyTheme();
   render();
   if (S.user && hasHealthPlugin()) syncHealthConnect(false);
+  if (S.user && inNativeApp()) scheduleNativeNotifications();
 })();
