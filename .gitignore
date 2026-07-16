@@ -23,3 +23,9 @@ capacitor-app/android/capacitor-cordova-android-plugins/build/
 capacitor-app/android/local.properties
 capacitor-app/android/.idea/
 capacitor-app/android/app/release/
+
+# Capacitor iOS build artifacts (project regenerates them)
+capacitor-app/ios/App/App/public/
+capacitor-app/ios/App/Pods/
+capacitor-app/ios/DerivedData/
+capacitor-app/ios/**/xcuserdata/
