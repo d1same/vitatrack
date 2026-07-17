@@ -258,7 +258,7 @@ function renderAuth(mode = 'login') {
         : mode === 'forgot' ? 'Remembered it? <b id="aSwap">Sign in</b>'
         : 'New here? <b id="aSwap">Create an account</b>'}
     </div>
-    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=4" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
+    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=5" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
   </div>`;
   $('#aSwap').onclick = () => renderAuth(mode === 'login' ? 'register' : 'login');
   const fg = $('#aForgot');
@@ -1385,7 +1385,7 @@ function renderGetApp() {
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('smartphone', 16)}</span>Android app</div>
       <div class="muted" style="margin-bottom:14px">Install Thrive as a real Android app — home-screen icon, full screen, and <b>Health Connect sync</b> (steps &amp; workouts from Samsung Health, Fitbit, your ring or watch).</div>
-      <a class="btn" href="./thrive.apk?b=4" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
+      <a class="btn" href="./thrive.apk?b=5" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
       <div class="tiny muted" style="margin-top:10px;line-height:1.6">After it downloads, tap the file and choose <b>Install</b>. If Android asks, allow installs from your browser this once. About 5&nbsp;MB. If you have an older "Thrive" installed, uninstall it first.</div>
     </div>`;
 
@@ -2448,8 +2448,35 @@ async function render() {
   const views = { home: renderHome, diary: renderDiary, fast: renderFast, more: renderMore,
     progress: renderProgress, recipes: renderRecipes, workouts: renderWorkouts, settings: renderSettings,
     learn: renderLearn, kitchen: renderKitchen, getapp: renderGetApp };
+  trackNav();
   (views[S.view] || renderHome)();
 }
+
+// ══ IN-APP BACK STACK (Android hardware back button) ══════════════════
+// Top-level pages are just S.view — there's no browser history to walk, so
+// the phone's Back button would otherwise close the whole app. We record
+// forward navigation here; the native MainActivity calls window.__thriveBack
+// on every Back press so it can close an open sheet, retrace pages, and only
+// minimise (never kill) the app once we're back at Home.
+function trackNav() {
+  const v = S.view || 'home';
+  if (S._nav == null) { S._nav = []; S._navAt = v; return; } // first render
+  if (v === S._navAt) return;                                // re-render, same page
+  if (S._navBack) { S._navBack = false; S._navAt = v; return; } // popping — don't re-push
+  if (S._nav[S._nav.length - 1] !== S._navAt) S._nav.push(S._navAt);
+  if (S._nav.length > 30) S._nav.shift();
+  S._navAt = v;
+}
+window.__thriveBack = function () {
+  // 1) Close any open bottom sheet / scanner / detail first.
+  if (document.querySelector('.sheet, .sheet-veil')) { closeSheet(); return true; }
+  // 2) Retrace in-app page navigation.
+  if (S._nav && S._nav.length) { S._navBack = true; S.view = S._nav.pop(); render(); return true; }
+  // 3) Anywhere but Home → go Home.
+  if ((S.view || 'home') !== 'home') { S._navBack = true; S.view = 'home'; render(); return true; }
+  // 4) At Home root → nothing to do; native side minimises the app.
+  return false;
+};
 
 // ══ BOOT ══════════════════════════════════════════════════════════════
 // ══ HEALTH CONNECT SYNC ═══════════════════════════════════════════════

@@ -2,6 +2,7 @@ package us.mobasheri.health;
 
 import android.os.Bundle;
 import android.view.View;
+import android.webkit.WebView;
 
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
@@ -25,5 +26,21 @@ public class MainActivity extends BridgeActivity {
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
             return insets;
         });
+    }
+
+    // The web app is a single page — its "pages" are just JS state, with no
+    // browser history — so the default Back behaviour finishes the activity and
+    // closes the whole app. Instead, ask the web app to handle Back (close an
+    // open sheet, or step back one page). Only when it has nothing left to do
+    // (already at Home) do we send the app to the background — never kill it.
+    @Override
+    public void onBackPressed() {
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView == null) { moveTaskToBack(true); return; }
+        webView.evaluateJavascript(
+            "(function(){try{return !!(window.__thriveBack&&window.__thriveBack());}catch(e){return false;}})()",
+            value -> {
+                if (!"true".equals(value)) moveTaskToBack(true);
+            });
     }
 }
