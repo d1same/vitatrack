@@ -1280,6 +1280,36 @@ const FAST_STAGES = [
   [18, 'sparkle', 'Deep ketosis', 'Autophagy increases — cellular cleanup and repair mode.'],
   [24, 'trophy', 'Extended fast', 'Growth hormone surges; deep autophagy. Break gently with light food.'],
 ];
+// Local HH:MM for a Date, and minutes-elapsed from an HH:MM the user picked.
+// If the picked time is later than "now" it must have been yesterday.
+const hhmm = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+function minAgoFromTime(v) {
+  if (!v) return 0;
+  const [h, m] = v.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return 0;
+  const now = new Date(), s = new Date();
+  s.setHours(h, m, 0, 0);
+  if (s > now) s.setDate(s.getDate() - 1);
+  return Math.max(0, Math.min(72 * 60, Math.round((now - s) / 60000)));
+}
+const fmtAgo = min => min < 60 ? min + ' min ago' : round1(min / 60) + 'h ago';
+
+// Correct the start time of the running fast (opened from the active card).
+window.adjustFastStart = curHM => {
+  openSheet(`<h3 style="margin-bottom:6px">Adjust start time</h3>
+    <div class="muted" style="margin-bottom:16px">When did you actually start fasting today?</div>
+    <label class="rem-line" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span>Started at</span><input type="time" id="afStart" class="rem-time" value="${curHM}"></label>
+    <button class="btn" id="afSave" style="margin-top:18px">Save start time</button>`);
+  $('#afSave').onclick = async () => {
+    const ago = minAgoFromTime($('#afStart').value);
+    const r = await api('fast_adjust', { start_min_ago: ago });
+    closeSheet();
+    toast(r && r.ok ? 'Start time updated ✓' : 'No active fast to adjust');
+    render();
+  };
+};
+
 async function renderFast() {
   const r = await api('fasts');
   const fasts = r.fasts || [];
@@ -1319,9 +1349,10 @@ async function renderFast() {
         ${ringSVG(210, 15, pct, done ? 'var(--accent)' : 'var(--purple)',
           `<div class="big" style="font-size:24px">${fmtDur(el)}</div><div class="lbl">${done ? 'target reached' : 'of ' + active.target_hours + 'h'}</div>`)}
         <div class="fast-stage"><span class="em" style="color:var(--purple)">${ic(stage[1], 22)}</span><span style="text-align:left"><b>${stage[2]}</b> — ${stage[3]}</span></div>
-        <div class="tiny" style="margin:10px 0 12px">Ends ${new Date(start + targetMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · water, black coffee & plain tea are OK</div>
+        <div class="tiny" style="margin:10px 0 12px">Started ${new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ends ${new Date(start + targetMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · <u id="fAdjust" style="cursor:pointer">adjust start</u></div>
         <button class="btn ${done ? '' : 'danger'}" id="fEnd">${done ? 'Complete fast' : 'End fast early'}</button>`;
       animateRings(card);
+      card.querySelector('#fAdjust').onclick = () => adjustFastStart(hhmm(new Date(start)));
       card.querySelector('#fEnd').onclick = async () => { await api('fast_end'); toast(done ? 'Fast completed — well done' : 'Fast ended'); render(); };
     };
     draw();
@@ -1343,11 +1374,14 @@ async function renderFast() {
         <div class="muted" style="margin-bottom:14px">Pick a plan — the first number is your fasting hours.</div>
         <div class="seg" style="margin-bottom:16px">${plans.map(pl =>
           `<button data-v="${pl}" class="${pl === sel ? 'on' : ''}">${pl}</button>`).join('')}</div>
+        <label class="rem-line" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px">
+          <span class="tiny">Started at</span><input type="time" id="fStart" class="rem-time" value="${hhmm(new Date())}"></label>
         <button class="btn" style="background:var(--purple);box-shadow:0 2px 8px var(--purple-soft)" id="fGo">Start ${sel.split(':')[0]}-hour fast</button>`;
       card.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { sel = b.dataset.v; draw(); });
       card.querySelector('#fGo').onclick = async () => {
-        await api('fast_start', { target_hours: +sel.split(':')[0] });
-        toast('Fast started'); render();
+        const ago = minAgoFromTime(card.querySelector('#fStart')?.value);
+        await api('fast_start', { target_hours: +sel.split(':')[0], start_min_ago: ago });
+        toast(ago >= 1 ? 'Fast started — ' + fmtAgo(ago) : 'Fast started'); render();
       };
     };
     draw();
@@ -2495,6 +2529,18 @@ function capCall(plugin, method, options) {
 const HC = (method, options) => capCall('HealthPlugin', method, options);
 function prettyWorkout(t) { return t ? String(t).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Workout'; }
 
+// Normalise a check/request-permissions result to a plain {READ_STEPS:true,…}
+// map. The plugin's TypeScript says permissions is an ARRAY of objects, but the
+// Android + iOS native code actually resolves a single OBJECT — so the old
+// Array.isArray() check was ALWAYS false and grant-detection never worked.
+// Health Connect then silently returns empty data for un-granted reads (no
+// error), which is why syncs "succeeded" while bringing nothing over.
+function hcPermMap(pr) {
+  const p = pr && pr.permissions;
+  if (Array.isArray(p)) return Object.assign({}, ...p.filter(Boolean));
+  return p && typeof p === 'object' ? p : {};
+}
+
 async function syncHealthConnect(manual) {
   if (!hasHealthPlugin() || !S.user) {
     if (manual) toast(!S.user ? 'Sign in first, then sync' : !window.Capacitor ? 'No native bridge — open this in the Thrive Android app (thrive.apk)' : 'Health bridge unavailable — reinstall the latest thrive.apk');
@@ -2502,7 +2548,7 @@ async function syncHealthConnect(manual) {
   }
   if (S._hcSyncing) return; S._hcSyncing = true;
   try {
-    const avail = await HC('isHealthAvailable');
+    const avail = await HC('isHealthAvailable').catch(() => null);
     if (!avail || !avail.available) {
       if (manual) {
         toast('This needs the free Health Connect app. Opening the Play Store — install it, then come back and tap Sync.');
@@ -2511,10 +2557,19 @@ async function syncHealthConnect(manual) {
       return;
     }
     const perms = { permissions: ['READ_STEPS', 'READ_WORKOUTS', 'READ_ACTIVE_CALORIES', 'READ_HEART_RATE'] };
-    let pr = null;
-    try { pr = await HC('checkHealthPermissions', perms); } catch (e) {}
-    const granted = pr && Array.isArray(pr.permissions) && pr.permissions.some(p => p && Object.values(p).some(Boolean));
-    if (!granted) { try { pr = await HC('requestHealthPermissions', perms); } catch (e) {} }
+    let granted = hcPermMap(await HC('checkHealthPermissions', perms).catch(() => null));
+    if (!granted.READ_STEPS) {
+      // Ask the user. Health Connect only lets an app prompt a couple of times;
+      // after that the toggle must be flipped by hand in its settings.
+      granted = hcPermMap(await HC('requestHealthPermissions', perms).catch(() => null));
+    }
+    if (!granted.READ_STEPS) {
+      if (manual) {
+        toast('Thrive needs permission to read Steps. Opening Health Connect → tap Thrive → allow Steps & Exercise, then come back and Sync.');
+        try { await HC('openHealthConnectSettings'); } catch (e) {}
+      }
+      return;
+    }
 
     const iso = d => d.toISOString();
     // Local calendar date (matches the app's todayStr) so today's steps land
@@ -2522,14 +2577,27 @@ async function syncHealthConnect(manual) {
     const dayKey = t => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
     const end = new Date(), start = new Date(Date.now() - 7 * 864e5);
     const metrics = [], workouts = [];
+    let stepErr = '';
 
+    // Steps, aggregated per day.
     try {
       const s = await HC('queryAggregated', { startDate: iso(start), endDate: iso(end), dataType: 'steps', bucket: 'day' });
       for (const b of (s && s.aggregatedData || [])) if (b.value > 0) metrics.push({ date: dayKey(b.startDate), type: 'steps', value: Math.round(b.value) });
-    } catch (e) {}
+    } catch (e) { stepErr = e.message || String(e); }
+
+    // Fallback: if aggregation returned nothing, sum raw step records per local
+    // day (some sources expose records but don't aggregate cleanly).
+    if (!metrics.length) {
+      try {
+        const rec = await HC('queryRecords', { startDate: iso(start), endDate: iso(end), dataType: 'steps' });
+        const byDay = {};
+        for (const r of (rec && rec.records || [])) { const k = dayKey(r.startDate); byDay[k] = (byDay[k] || 0) + (+r.value || 0); }
+        for (const k in byDay) if (byDay[k] > 0) metrics.push({ date: k, type: 'steps', value: Math.round(byDay[k]) });
+      } catch (e) { if (!stepErr) stepErr = e.message || String(e); }
+    }
 
     try {
-      const w = await HC('queryWorkouts', { startDate: iso(start), endDate: iso(end), includeHeartRate: false, includeRoute: false });
+      const w = await HC('queryWorkouts', { startDate: iso(start), endDate: iso(end), includeHeartRate: false, includeRoute: false, includeSteps: false });
       for (const r of (w && w.workouts || [])) {
         const mins = Math.round((r.duration || ((new Date(r.endDate) - new Date(r.startDate)) / 1000)) / 60);
         if (mins <= 0) continue;
@@ -2538,7 +2606,9 @@ async function syncHealthConnect(manual) {
     } catch (e) {}
 
     if (!metrics.length && !workouts.length) {
-      if (manual) toast('Health Connect returned no steps or workouts. Make sure an app (Samsung Health, Google Fit, Fitbit, your watch) is writing your steps into Health Connect.');
+      if (manual) toast(stepErr
+        ? 'Health Connect error: ' + stepErr
+        : 'Connected ✓ but Health Connect has no steps or workouts for the last 7 days. Open Health Connect → Data → Steps and make sure an app (Samsung Health, Google Fit, Fitbit, your watch) is writing steps into it.');
       return;
     }
     const res = await api('sync_health', { source: 'health_connect', metrics, workouts });
@@ -2548,6 +2618,8 @@ async function syncHealthConnect(manual) {
         toast(`Synced ✓ ${todaySteps.toLocaleString()} steps today · ${metrics.length} day(s) · ${workouts.length} workout(s)`);
       }
       if (S.view === 'home' || S.view === 'settings' || S.view === 'progress') render();
+    } else if (manual) {
+      toast('Synced from Health Connect but the server rejected it' + (res && res.error ? ': ' + res.error : ''));
     }
   } catch (e) { if (manual) toast('Sync failed: ' + (e.message || e)); }
   finally { S._hcSyncing = false; }

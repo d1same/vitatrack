@@ -527,7 +527,12 @@ case 'fast_start': {
     $uid = require_user();
     db()->prepare("UPDATE fasts SET end_ts=datetime('now') WHERE user_id=? AND end_ts IS NULL")->execute([$uid]);
     $hours = max(8, min(72, (float)($in['target_hours'] ?? 16)));
-    db()->prepare("INSERT INTO fasts (user_id,start_ts,target_hours) VALUES (?,datetime('now'),?)")->execute([$uid, $hours]);
+    // Optional: the fast actually started this many minutes ago (the user forgot
+    // to hit start). Clamp 0…72h; the client sends the local-time delta so this
+    // stays timezone-safe.
+    $ago = max(0, min(72 * 60, (int)($in['start_min_ago'] ?? 0)));
+    db()->prepare("INSERT INTO fasts (user_id,start_ts,target_hours) VALUES (?,datetime('now',?),?)")
+        ->execute([$uid, '-' . $ago . ' minutes', $hours]);
     out(['ok' => true, 'id' => (int)db()->lastInsertId()]);
 }
 
@@ -535,6 +540,15 @@ case 'fast_end': {
     $uid = require_user();
     db()->prepare("UPDATE fasts SET end_ts=datetime('now') WHERE user_id=? AND end_ts IS NULL")->execute([$uid]);
     out(['ok' => true]);
+}
+
+// Correct the start time of the current, still-running fast.
+case 'fast_adjust': {
+    $uid = require_user();
+    $ago = max(0, min(72 * 60, (int)($in['start_min_ago'] ?? 0)));
+    $st = db()->prepare("UPDATE fasts SET start_ts=datetime('now',?) WHERE user_id=? AND end_ts IS NULL");
+    $st->execute(['-' . $ago . ' minutes', $uid]);
+    out(['ok' => $st->rowCount() > 0]);
 }
 
 case 'fasts': {
