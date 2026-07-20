@@ -579,6 +579,26 @@ function sparkline(vals, { w = 130, h = 34, color = 'var(--accent)' } = {}) {
 const statTile = (icn, color, val, lbl) =>
   `<div class="stat-tile"><div class="emoji" style="color:var(--${color})">${ic(icn, 20)}</div><div class="v">${val}</div><div class="k">${lbl}</div></div>`;
 
+// ── Step calorie credit ───────────────────────────────────────────────
+// Steps burn calories too, but the daily budget's TDEE already assumes the
+// everyday movement of the chosen activity level — so only steps BEYOND a
+// baseline earn credit, at ~0.00039 kcal per step per kg of body weight
+// (walking ≈ 0.53 kcal/kg/km at ~1,350 steps/km). Walking/running workout
+// calories are subtracted so a logged walk isn't counted twice.
+const STEP_BASELINE = 3500;
+function stepKcalPerStep(day) {
+  const w = +(day?.last_weight ?? S.profile?.start_weight_kg) || 80;
+  return 0.00039 * w;
+}
+function stepsBurnKcal(steps, day) {
+  if (!steps || steps <= STEP_BASELINE) return 0;
+  let kcal = (steps - STEP_BASELINE) * stepKcalPerStep(day);
+  const walkKcal = (day?.workouts || [])
+    .filter(x => /walk|run|jog|hik|tread/i.test(x.name || ''))
+    .reduce((a, x) => a + (+x.kcal || 0), 0);
+  return Math.max(0, Math.round(kcal - walkKcal));
+}
+
 async function renderHome() {
   const p = S.profile;
   const [day, wr] = await Promise.all([api('day', { date: todayStr() }), api('weights')]);
@@ -589,7 +609,13 @@ async function renderHome() {
   const carbs = day.entries.reduce((a, e) => a + +e.carbs, 0);
   const fiber = day.entries.reduce((a, e) => a + +e.fiber, 0);
   const fat = day.entries.reduce((a, e) => a + +e.fat, 0);
-  const burned = day.workouts.reduce((a, w) => a + +w.kcal, 0);
+  // Burned = logged/synced workouts + credit for steps beyond the daily
+  // baseline (see stepsBurnKcal) — so movement genuinely feeds "kcal left".
+  const bio = day.bio || {};
+  const steps = bio.steps ? Math.round(+bio.steps.v1) : null;
+  const wkBurn = day.workouts.reduce((a, w) => a + +w.kcal, 0);
+  const stepBurn = stepsBurnKcal(steps, day);
+  const burned = wkBurn + stepBurn;
   const netCarbs = Math.max(0, carbs - fiber);
   const target = calorieGoal();
   const remaining = Math.round(target - eaten + burned);
@@ -642,10 +668,8 @@ async function renderHome() {
     </div>`;
 
   // Activity today (steps & sleep from Health Connect, workouts from the log)
-  const bio = day.bio || {};
-  const steps = bio.steps ? Math.round(+bio.steps.v1) : null;
   const sleepH = bio.sleep ? +bio.sleep.v1 : null;
-  const wk = day.workouts || [], wkKcal = wk.reduce((a, w) => a + (+w.kcal || 0), 0);
+  const wk = day.workouts || [], wkKcal = wkBurn;
   const hasActivity = steps != null || sleepH != null || wk.length > 0;
   const activityCard = `
     <div class="card" onclick="S.view='progress';render()" style="cursor:pointer">
@@ -656,7 +680,10 @@ async function renderHome() {
         ${statTile('moon', 'purple', sleepH != null ? sleepH + 'h' : '—', 'Sleep')}
       </div>
       ${hasActivity
-        ? (wkKcal > 0 ? `<div class="tiny" style="margin-top:10px;color:var(--text2)">${wk.length} workout${wk.length === 1 ? '' : 's'} · ${Math.round(wkKcal)} kcal burned</div>` : '')
+        ? ((wkKcal > 0 || stepBurn > 0) ? `<div class="tiny" style="margin-top:10px;color:var(--text2)">${[
+            wkKcal > 0 ? `${wk.length} workout${wk.length === 1 ? '' : 's'} · ${Math.round(wkKcal)} kcal` : '',
+            stepBurn > 0 ? `steps ≈${stepBurn} kcal (beyond daily baseline)` : '',
+          ].filter(Boolean).join(' · ')} — all credited to your budget</div>` : '')
         : `<div class="tiny" style="margin-top:10px;color:var(--text2)">Install the Thrive Android app and sync <b>Health Connect</b> to auto-fill steps &amp; workouts.</div>`}
     </div>`;
 
@@ -714,7 +741,8 @@ async function renderHome() {
   </div>`);
 
   startHomeFastTicker(day.active_fast);
-  renderCoach(day, { eaten, netCarbs, remaining });
+  renderCoach(day, { eaten, netCarbs, remaining, protein, steps, stepBurn,
+    lastWeighDate: weights.length ? weights[weights.length - 1].date : null });
 }
 
 function startHomeFastTicker(fast) {
@@ -732,6 +760,69 @@ const fmtDur = ms => {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 3600)}h ${String(Math.floor(s / 60) % 60).padStart(2, '0')}m ${String(s % 60).padStart(2, '0')}s`;
 };
+
+// Context-aware nudges: what matters RIGHT NOW, given the time of day and
+// today's data. Ordered by urgency; the coach card shows the top three.
+function coachNudges(day, m) {
+  const p = S.profile, hour = new Date().getHours();
+  const n = [];
+
+  // Over budget → a concrete, sized rescue.
+  if (m.remaining < 0)
+    n.push(['activity', 'red', `You're ${Math.abs(m.remaining)} kcal over budget — a ${Math.ceil(Math.abs(m.remaining) / 5)}-minute brisk walk would balance it out.`]);
+
+  // Mid-fast: encouragement with the stage, not just a timer.
+  if (day.active_fast) {
+    const elH = (Date.now() - parseUTC(day.active_fast.start_ts)) / 36e5;
+    const left = day.active_fast.target_hours - elH;
+    if (left > 0 && elH >= 1)
+      n.push(['timer', 'purple', `${round1(elH)}h into your fast, ${round1(left)}h to go — cravings pass in waves; water or black coffee rides them out.`]);
+    else if (left <= 0)
+      n.push(['checkcircle', 'accent', `Fast target reached (${round1(elH)}h) — complete it on the Fasting page and break it gently, protein first.`]);
+  }
+
+  // Behind on water pace (waking day ≈ 8:00–22:00).
+  const wGoal = waterGoalMl();
+  if (hour >= 10 && hour <= 21 && wGoal > 0) {
+    const expected = wGoal * Math.min(1, (hour - 8) / 14);
+    if (day.water < expected * 0.6) {
+      const behind = Math.max(1, Math.round((expected - day.water) / glassMl()));
+      n.push(['droplet', 'blue', `Water check: ${fmtWater(day.water)} so far — about ${behind} glass${behind === 1 ? '' : 'es'} behind pace. Have one now.`]);
+    }
+  }
+
+  // Protein gap once the day is half over.
+  const pT = p.protein_g || 100;
+  if (hour >= 15 && m.protein < pT * 0.6)
+    n.push(['utensils', 'blue', `Protein check: ${Math.round(m.protein)}g of ${pT}g — build your next meal around protein (eggs, chicken, Greek yogurt).`]);
+
+  // Step momentum (only when Health Connect gives us steps).
+  if (m.steps != null && hour >= 12 && hour <= 20) {
+    if (m.steps < 4000)
+      n.push(['steps', 'accent', `${m.steps.toLocaleString()} steps so far — a 15-minute walk adds ~1,700 more and earns back ~${Math.round(1700 * stepKcalPerStep(day))} kcal.`]);
+    else if (m.steps >= 8000)
+      n.push(['flame', 'orange', `${m.steps.toLocaleString()} steps today — excellent movement. That's ≈${m.stepBurn} kcal earned back.`]);
+  }
+
+  // Weigh-in cadence: weekly is the sweet spot.
+  if (m.lastWeighDate) {
+    const days = Math.floor((Date.now() - new Date(m.lastWeighDate + 'T12:00:00').getTime()) / 864e5);
+    if (days >= 7)
+      n.push(['scale', 'orange', `${days} days since your last weigh-in — hop on the scale tomorrow morning (after the bathroom, before breakfast).`]);
+  }
+
+  // Evening: keep the diary honest.
+  if (hour >= 20 && !day.entries.some(e => e.meal === 'dinner'))
+    n.push(['moon', 'purple', `Dinner isn't logged yet — 30 seconds now keeps the diary honest, even if the meal wasn't perfect.`]);
+
+  // Always end on something positive when the day is going well.
+  if (m.eaten > 0 && m.remaining >= 0)
+    n.push(['trophy', 'accent', `${m.remaining} kcal still in budget with everything logged — this is exactly what a losing day looks like.`]);
+  if (!n.length)
+    n.push(['sunrise', 'accent', `Fresh day, fresh page. Log meals as you eat them — tracking is the single strongest predictor of success.`]);
+
+  return n.slice(0, 3);
+}
 
 async function renderCoach(day, m) {
   const el = $('#coachCard'); if (!el) return;
@@ -767,8 +858,11 @@ async function renderCoach(day, m) {
   if (issues.includes('knee')) exPool = exPool.filter(e => +e.low_impact);
   const ex = exPool[new Date().getDate() % Math.max(1, exPool.length)];
   const workedOut = day.workouts.length > 0;
+  const nudges = coachNudges(day, m).map(([icn, color, text]) =>
+    `<div class="fast-stage"><span class="em" style="color:var(--${color})">${ic(icn, 20)}</span><span style="text-align:left">${text}</span></div>`).join('');
   el.innerHTML = `<div class="card">
     <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('compass', 16)}</span>Today's coach</div>
+    ${nudges}
     ${lessonRow}
     ${rec ? `<div class="food-row" style="cursor:pointer" onclick='openRecipe(${rec.id})'>
       <span style="font-size:24px">${rec.emoji}</span>
@@ -781,7 +875,6 @@ async function renderCoach(day, m) {
       <div class="d">~${ex.kcal30} kcal / 30 min${+ex.back_safe ? ' · back-safe ✓' : ''}</div></div>
       <span class="tiny">view ›</span></div>`
     : workedOut ? '<div class="muted" style="padding:8px 0">Workout logged today — nice work.</div>' : ''}
-    ${m.remaining < 0 ? `<div class="fast-stage"><span class="em" style="color:var(--accent)">${ic('activity', 22)}</span><span>You're ${Math.abs(m.remaining)} kcal over budget — a ${Math.ceil(Math.abs(m.remaining) / 5)}-minute brisk walk would balance it out.</span></div>` : ''}
   </div>`;
 }
 
@@ -1148,9 +1241,11 @@ async function renderDiary() {
   const dWk = day.workouts || [];
   const dBurned = dWk.reduce((a, w) => a + (+w.kcal || 0), 0);
   const dHasActivity = dSteps != null || dSleep != null || dWk.length > 0 || +day.water > 0;
+  const dStepBurn = stepsBurnKcal(dSteps, day);
   const footBits = [];
   if (+day.water > 0) footBits.push(fmtWater(day.water) + ' water');
-  if (dBurned > 0) footBits.push(Math.round(dBurned) + ' kcal burned');
+  if (dBurned > 0) footBits.push(Math.round(dBurned) + ' kcal from workouts');
+  if (dStepBurn > 0) footBits.push('≈' + dStepBurn + ' kcal from steps');
   const activityFoot = footBits.length ? footBits.join(' · ')
     : dHasActivity ? ''
     : (isToday
