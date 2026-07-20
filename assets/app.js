@@ -258,7 +258,7 @@ function renderAuth(mode = 'login') {
         : mode === 'forgot' ? 'Remembered it? <b id="aSwap">Sign in</b>'
         : 'New here? <b id="aSwap">Create an account</b>'}
     </div>
-    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=5" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
+    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=6" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
   </div>`;
   $('#aSwap').onclick = () => renderAuth(mode === 'login' ? 'register' : 'login');
   const fg = $('#aForgot');
@@ -1422,7 +1422,7 @@ function renderGetApp() {
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('smartphone', 16)}</span>Android app</div>
       <div class="muted" style="margin-bottom:14px">Install Thrive as a real Android app — home-screen icon, full screen, and <b>Health Connect sync</b> (steps &amp; workouts from Samsung Health, Fitbit, your ring or watch).</div>
-      <a class="btn" href="./thrive.apk?b=5" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
+      <a class="btn" href="./thrive.apk?b=6" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
       <div class="tiny muted" style="margin-top:10px;line-height:1.6">After it downloads, tap the file and choose <b>Install</b>. If Android asks, allow installs from your browser this once. About 5&nbsp;MB. If you have an older "Thrive" installed, uninstall it first.</div>
     </div>`;
 
@@ -2214,6 +2214,12 @@ async function renderSettings() {
       <div id="syncHint" class="tiny muted" style="margin-top:8px"></div>
     </div>
 
+    ${nativeApp() ? `<div class="card">
+      <div class="card-title"><span class="icon" style="background:var(--blue-soft);color:var(--blue)">${ic('download', 16)}</span>App version</div>
+      <div class="muted" style="margin-bottom:10px">You're running Thrive <b>${esc(String((installedVersion() || {}).name || '—'))}</b>. Updates install straight from here — no need to download anything by hand.</div>
+      <button class="btn small secondary" id="sCheckUpdate" style="width:100%">Check for updates</button>
+    </div>` : ''}
+
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--orange-soft);color:var(--orange)">${ic('sparkle', 16)}</span>AI photo scan</div>
       <div class="muted" style="margin-bottom:10px">Powers the food photo analysis — the provider is auto-detected from your key:<br>
@@ -2395,6 +2401,12 @@ async function renderSettings() {
     await syncHealthConnect(true);
     syncBtn.disabled = false; syncBtn.textContent = 'Sync Health Connect now';
   };
+  const updBtn = $('#sCheckUpdate');
+  if (updBtn) updBtn.onclick = async () => {
+    updBtn.disabled = true; updBtn.textContent = 'Checking…';
+    await checkAppUpdate(true);
+    updBtn.disabled = false; updBtn.textContent = 'Check for updates';
+  };
   const diagBtn = $('#sSyncDiag');
   if (diagBtn) diagBtn.onclick = async () => {
     diagBtn.disabled = true; diagBtn.textContent = 'Checking…';
@@ -2549,6 +2561,66 @@ function hcPermMap(pr) {
   const p = pr && pr.permissions;
   if (Array.isArray(p)) return Object.assign({}, ...p.filter(Boolean));
   return p && typeof p === 'object' ? p : {};
+}
+
+// ══ IN-APP UPDATE (Android) ═══════════════════════════════════════════
+// Sideloaded builds never get Play Store updates, so Thrive checks
+// version.json on the server and can download + install the new APK itself.
+// The download URL is hardcoded natively — this side only ASKS for an
+// update, it can't choose what gets installed.
+function nativeApp() { return window.ThriveNative || null; }
+function installedVersion() {
+  const N = nativeApp();
+  if (!N || typeof N.versionCode !== 'function') return null;
+  try { return { code: +N.versionCode() || 0, name: N.versionName() || '' }; } catch (e) { return null; }
+}
+function fetchLatestVersion() {
+  return fetch('./version.json?t=' + Date.now(), { cache: 'no-store' })
+    .then(r => r.json()).catch(() => null);
+}
+
+async function checkAppUpdate(manual) {
+  const cur = installedVersion();
+  if (!cur) {
+    if (manual) toast('In-app updates need the Thrive Android app — get it from More → Get the app.');
+    return;
+  }
+  const info = await fetchLatestVersion();
+  if (!info || !+info.versionCode) { if (manual) toast('Could not check for updates — try again later'); return; }
+  if (+info.versionCode <= cur.code) { if (manual) toast(`You're on the latest version ✓ (${cur.name || cur.code})`); return; }
+  showUpdateSheet(info);
+}
+
+function showUpdateSheet(info) {
+  openSheet(`<h3 style="margin-bottom:6px">Update available</h3>
+    <div class="muted" style="margin-bottom:14px">Thrive <b>${esc(String(info.versionName || ''))}</b> is ready to install.</div>
+    ${info.notes ? `<div class="tiny" style="margin-bottom:16px;color:var(--text2);line-height:1.6">${esc(String(info.notes))}</div>` : ''}
+    <button class="btn" id="upNow" style="width:100%">Download &amp; install</button>
+    <button class="btn small secondary" id="upLater" style="width:100%;margin-top:8px">Later</button>
+    <div class="tiny muted" style="margin-top:10px;text-align:center">Android will ask you to confirm the install.</div>`);
+  $('#upNow').onclick = () => {
+    closeSheet();
+    try { nativeApp().installUpdate(); } catch (e) { toast('Update failed to start'); }
+  };
+  $('#upLater').onclick = () => {
+    try { localStorage.setItem('upSkip', String(info.versionCode)); } catch (e) {}
+    closeSheet();
+  };
+}
+
+// Quiet auto-check: at most once every 6h, and never re-nag about a version
+// the user already dismissed with "Later".
+async function autoCheckUpdate() {
+  const cur = installedVersion();
+  if (!cur) return;
+  let last = 0, skip = 0;
+  try { last = +localStorage.getItem('upLast') || 0; skip = +localStorage.getItem('upSkip') || 0; } catch (e) {}
+  if (Date.now() - last < 6 * 3600e3) return;
+  try { localStorage.setItem('upLast', String(Date.now())); } catch (e) {}
+  const info = await fetchLatestVersion();
+  if (!info || !+info.versionCode) return;
+  if (+info.versionCode <= cur.code || +info.versionCode === skip) return;
+  showUpdateSheet(info);
 }
 
 // Read-only probe of the whole Health Connect chain. Shows the RAW answers so a
@@ -2770,4 +2842,6 @@ window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.inst
   render();
   if (S.user && hasHealthPlugin()) syncHealthConnect(false);
   if (S.user && inNativeApp()) scheduleNativeNotifications();
+  // Give the native JS bridge a moment to attach, then check for a new APK.
+  if (S.user) setTimeout(() => { try { autoCheckUpdate(); } catch (e) {} }, 4000);
 })();

@@ -59,6 +59,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- In-app update: download the new APK and hand it to the system installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Health Connect: read activity data -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
