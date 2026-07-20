@@ -346,7 +346,7 @@ case 'del_meal': {
 // ── Biometrics (blood pressure, glucose, ketones, sleep, steps…) ────
 case 'log_bio': {
     $uid = require_user();
-    $types = ['bp','glucose','ketones','rhr','sleep','steps'];
+    $types = ['bp','glucose','ketones','rhr','sleep','steps','hr','spo2','bodyfat'];
     $type = in_array($in['type'] ?? '', $types, true) ? $in['type'] : null;
     if (!$type) fail('Unknown metric type');
     $v1 = (float)($in['v1'] ?? 0);
@@ -379,7 +379,7 @@ case 'del_bio': {
 case 'sync_health': {
     $uid = require_user();
     $source = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($in['source'] ?? 'health_connect'))) ?: 'health_connect';
-    $types = ['bp','glucose','ketones','rhr','sleep','steps'];
+    $types = ['bp','glucose','ketones','rhr','sleep','steps','hr','spo2','bodyfat'];
     $metrics = is_array($in['metrics'] ?? null) ? $in['metrics'] : [];
     $workouts = is_array($in['workouts'] ?? null) ? $in['workouts'] : [];
     $isDate = fn($d) => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$d);

@@ -1,6 +1,6 @@
 {
-  "versionCode": 4,
-  "versionName": "1.3",
+  "versionCode": 5,
+  "versionName": "1.4",
   "url": "https://health.mobasheri.us/thrive.apk",
-  "notes": "Update inside the app — no more manual downloads. Back button now goes back a page instead of closing Thrive. New Health Connect diagnostics to pinpoint sync problems, and you can set or correct your fasting start time."
+  "notes": "Much richer Health Connect sync: sleep, heart rate, resting heart rate, weight, body fat, blood pressure, blood glucose and oxygen saturation now sync alongside steps and workouts. Health Connect will ask you to allow the new data types."
 }

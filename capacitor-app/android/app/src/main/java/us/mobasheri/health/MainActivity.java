@@ -36,6 +36,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Must be registered BEFORE super.onCreate() so the bridge picks it up.
+        // Reads the Health Connect records capacitor-health doesn't expose.
+        registerPlugin(ThriveHealthPlugin.class);
         super.onCreate(savedInstanceState);
         // Android 15+ forces edge-to-edge, so the WebView draws under the
         // status bar and the navigation bar. Pad the content view by the

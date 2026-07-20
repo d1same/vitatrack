@@ -258,7 +258,7 @@ function renderAuth(mode = 'login') {
         : mode === 'forgot' ? 'Remembered it? <b id="aSwap">Sign in</b>'
         : 'New here? <b id="aSwap">Create an account</b>'}
     </div>
-    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=6" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
+    ${/Android/i.test(navigator.userAgent) ? `<div class="tiny" style="text-align:center;margin-top:18px"><a href="./thrive.apk?b=7" download="thrive.apk" style="color:var(--accent);text-decoration:none">${ic('download', 13)} Get the Android app</a></div>` : ''}
   </div>`;
   $('#aSwap').onclick = () => renderAuth(mode === 'login' ? 'register' : 'login');
   const fg = $('#aForgot');
@@ -1453,7 +1453,7 @@ function renderGetApp() {
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('smartphone', 16)}</span>Android app</div>
       <div class="muted" style="margin-bottom:14px">Install Thrive as a real Android app — home-screen icon, full screen, and <b>Health Connect sync</b> (steps &amp; workouts from Samsung Health, Fitbit, your ring or watch).</div>
-      <a class="btn" href="./thrive.apk?b=6" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
+      <a class="btn" href="./thrive.apk?b=7" download="thrive.apk" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none">${ic('download', 17)} Download for Android</a>
       <div class="tiny muted" style="margin-top:10px;line-height:1.6">After it downloads, tap the file and choose <b>Install</b>. If Android asks, allow installs from your browser this once. About 5&nbsp;MB. If you have an older "Thrive" installed, uninstall it first.</div>
     </div>`;
 
@@ -1565,8 +1565,11 @@ const BIO_TYPES = {
   glucose: ['glucose', 'Blood glucose', 'mg/dL', 1],
   ketones: ['leaf', 'Ketones', 'mmol/L', 1],
   rhr:     ['activity', 'Resting heart rate', 'bpm', 1],
+  hr:      ['heartpulse', 'Heart rate (avg)', 'bpm', 1],
   sleep:   ['bed', 'Sleep', 'hours', 1],
   steps:   ['target', 'Steps', 'steps', 1],
+  spo2:    ['droplet', 'Oxygen saturation', '%', 1],
+  bodyfat: ['scale', 'Body fat', '%', 1],
 };
 
 function weeklyInsight(r, p) {
@@ -2238,7 +2241,7 @@ async function renderSettings() {
 
     <div class="card">
       <div class="card-title"><span class="icon" style="background:var(--red-soft);color:var(--red)">${ic('heartpulse', 16)}</span>Health sync</div>
-      <div class="muted" style="margin-bottom:10px">Bring your <b>steps and workouts</b> in from <b>Health Connect</b> — the Android hub that gathers data from Samsung Health, Fitbit, your ring or watch and most fitness apps. Needs the <b>Thrive Android app</b> (More → Get the app); it syncs automatically each time you open it.</div>
+      <div class="muted" style="margin-bottom:10px">Bring your <b>steps, workouts, sleep, heart rate, weight, blood pressure, glucose and SpO2</b> in from <b>Health Connect</b> — the Android hub that gathers data from Samsung Health, Fitbit, your ring or watch and most fitness apps. Needs the <b>Thrive Android app</b> (More → Get the app); it syncs automatically each time you open it.</div>
       <div id="syncStatus" class="tiny" style="margin-bottom:10px">Checking sync status…</div>
       <button class="btn small secondary" id="sSyncNow" style="width:100%">Sync Health Connect now</button>
       <button class="btn small secondary" id="sSyncDiag" style="width:100%;margin-top:8px">Diagnose Health Connect</button>
@@ -2718,6 +2721,13 @@ async function healthDiagnostics() {
   } catch (e) { L.push(['queryWorkouts ERROR', e.message || String(e)]); }
   L.push(['Workouts (7d)', String(wkN)]);
 
+  // Extended metrics live in our own native plugin (APK v1.4+).
+  try {
+    const gp = hcPermMap(await capCall('ThriveHealth', 'grantedHealthPermissions', {}));
+    const on = Object.keys(gp).filter(k => gp[k]).map(k => k.replace('READ_', '').replace(/_/g, ' ').toLowerCase());
+    L.push(['Extended metrics granted', on.length ? on.join(', ') : 'none — tap Sync to be asked']);
+  } catch (e) { L.push(['Extended metrics', 'needs app update (v1.4+) — Settings → App version']); }
+
   L.push(['Verdict', !pmap.READ_STEPS
     ? 'Steps permission is NOT granted. Open Health Connect → App permissions → Thrive → allow Steps & Exercise.'
     : (aggN === 0 && recN === 0)
@@ -2811,6 +2821,30 @@ async function syncHealthConnect(manual) {
         const mins = Math.round((r.duration || ((new Date(r.endDate) - new Date(r.startDate)) / 1000)) / 60);
         if (mins <= 0) continue;
         workouts.push({ date: dayKey(r.startDate), name: prettyWorkout(r.workoutType), minutes: mins, kcal: Math.round(r.calories || 0), ext_id: 'hc-' + (r.id || (dayKey(r.startDate) + '-' + mins)) });
+      }
+    } catch (e) {}
+
+    // Extended metrics via our own native plugin (ThriveHealth): sleep, heart
+    // rate, resting HR, weight, body fat, blood pressure, glucose, SpO2.
+    // Older APKs don't have the plugin — every call is try/caught so steps
+    // and workouts still sync fine there.
+    try {
+      let gp = {};
+      try { gp = hcPermMap(await capCall('ThriveHealth', 'grantedHealthPermissions', {})); } catch (e) {}
+      const anyGranted = Object.values(gp).some(Boolean);
+      // Ask once (Health Connect limits how often an app may prompt).
+      let asked = '';
+      try { asked = localStorage.getItem('thAsked') || ''; } catch (e) {}
+      if (!anyGranted && (manual || !asked)) {
+        try { localStorage.setItem('thAsked', '1'); } catch (e) {}
+        try { gp = hcPermMap(await capCall('ThriveHealth', 'requestHealthPermissions', {})); } catch (e) {}
+      }
+      if (Object.values(gp).some(Boolean)) {
+        const ex = await capCall('ThriveHealth', 'queryAll', { startDate: iso(start), endDate: iso(end) });
+        const push = (rows, type) => { for (const r of (rows || [])) if (r && r.date && r.value > 0) metrics.push({ date: r.date, type, value: r.value, value2: r.value2 }); };
+        push(ex.sleep, 'sleep'); push(ex.rhr, 'rhr'); push(ex.hr, 'hr');
+        push(ex.weight, 'weight'); push(ex.bodyfat, 'bodyfat');
+        push(ex.bp, 'bp'); push(ex.glucose, 'glucose'); push(ex.spo2, 'spo2');
       }
     } catch (e) {}
 
