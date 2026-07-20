@@ -62,18 +62,22 @@ Reminders now arrive via Web Push even when the app isn't running.
 (iPhone requires the app installed to the home screen, iOS 16.4+.)
 
 ### 🤖 Android app
-A signed, installable **`vitatrack.apk`** ships in this repo (and deploys to your
-site root, e.g. `https://your-site/vitatrack.apk`). To install: open that URL on an
-Android phone, download, and allow "install from this source." It's a TWA — the
-same Thrive web app in a native shell, sharing your server, accounts, and
-background notifications. The matching `.well-known/assetlinks.json` (already
-deployed) validates the signing key so the browser address bar is hidden and it
-looks 100% native.
+A signed, installable **`thrive.apk`** ships in this repo (and deploys to your
+site root, e.g. `https://your-site/thrive.apk`). To install: open that URL on an
+Android phone, download, and allow "install from this source." It's a Capacitor
+app — the same Thrive web app in a native shell, sharing your server and
+accounts, plus native extras the web can't do: **Health Connect sync** (steps,
+workouts, sleep, heart rate, weight, vitals), **native notifications**, and
+**in-app self-updates** (checks `version.json` on your server and installs new
+builds itself).
 
-- **Rebuild it** (after a key change or to bump the version): the Bubblewrap
-  project is in `android-app/` — `bubblewrap build`, then sign. The signing
-  **`android.keystore` is gitignored — keep your own copy forever**; it's the
-  app's permanent identity and Play Store won't accept a different one later.
+- **Rebuild it** (to bump the version): the Capacitor project is in
+  `capacitor-app/` — `cd capacitor-app/android && gradlew assembleRelease`
+  (JDK 21), then zipalign + apksigner with `android-app/android.keystore`, copy
+  to repo root as `thrive.apk`, and bump `version.json` so installed apps see
+  the update. The signing **`android.keystore` is gitignored — keep your own
+  copy forever**; it's the app's permanent identity and Play Store won't accept
+  a different one later.
 - **Play Store** (optional, $25 one-time): build an `.aab` and upload; the same
   keystore signs it.
 

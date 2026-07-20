@@ -6,13 +6,22 @@
 
 const REMEMBER_DAYS = 90;
 
+// True when the CLIENT connection is HTTPS — including behind Cloudflare,
+// where the origin may be plain HTTP but X-Forwarded-Proto says https.
+// (Plain $_SERVER['HTTPS'] alone would drop the cookies' Secure flag there.)
+function is_https(): bool {
+    return !empty($_SERVER['HTTPS'])
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+        || strpos($_SERVER['HTTP_CF_VISITOR'] ?? '', 'https') !== false;
+}
+
 function start_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
         @ini_set('session.gc_maxlifetime', (string)(REMEMBER_DAYS * 86400));
         session_set_cookie_params([
             'lifetime' => REMEMBER_DAYS * 86400,
             'path' => '/', 'httponly' => true, 'samesite' => 'Lax',
-            'secure' => !empty($_SERVER['HTTPS']),
+            'secure' => is_https(),
         ]);
         session_name('healthsid');
         session_start();
@@ -22,7 +31,7 @@ function start_session(): void {
 function remember_cookie_opts(int $expires): array {
     return [
         'expires' => $expires, 'path' => '/', 'httponly' => true,
-        'samesite' => 'Lax', 'secure' => !empty($_SERVER['HTTPS']),
+        'samesite' => 'Lax', 'secure' => is_https(),
     ];
 }
 

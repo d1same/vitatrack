@@ -4,7 +4,7 @@ Options -Indexes
 
 # Defense-in-depth: never serve source, VCS, build or config files.
 # (The clean setup is to check the git repo out OUTSIDE the web root.)
-RedirectMatch 404 ^/(\.git|capacitor-app|android-app|node_modules)(/|$)
+RedirectMatch 404 ^/(\.git|capacitor-app|android-app|node_modules|includes)(/|$)
 <FilesMatch "^(\.cpanel\.yml|\.gitignore|\.gitattributes|README\.md|HEALTHCONNECT\.md|package(-lock)?\.json)$">
   Require all denied
 </FilesMatch>
@@ -20,6 +20,9 @@ RedirectMatch 404 ^/(\.git|capacitor-app|android-app|node_modules)(/|$)
 <IfModule mod_headers.c>
   Header set X-Frame-Options "SAMEORIGIN"
   Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+  # 180-day HSTS (site is HTTPS-only via Cloudflare)
+  Header always set Strict-Transport-Security "max-age=15552000"
   # Don't let Cloudflare/browsers cache the APK — otherwise a new build keeps
   # serving the old cached file. (The download link is also cache-busted.)
   <FilesMatch "\.apk$">

@@ -50,7 +50,7 @@ function vapid_jwt(string $aud): string {
     $keys = vapid_keys();
     $seg = function (array $a): string { return b64url(json_encode($a)); };
     $unsigned = $seg(['typ' => 'JWT', 'alg' => 'ES256']) . '.'
-              . $seg(['aud' => $aud, 'exp' => time() + 12 * 3600, 'sub' => 'mailto:admin@vitatrack.app']);
+              . $seg(['aud' => $aud, 'exp' => time() + 12 * 3600, 'sub' => 'mailto:mhmobasheri@gmail.com']);
     if (!openssl_sign($unsigned, $der, $keys['private_pem'], OPENSSL_ALGO_SHA256)) {
         throw new RuntimeException('JWT signing failed');
     }

@@ -23,10 +23,17 @@ const dot = cls => `<i class="dot dot-${cls}"></i>`;
 const entryDot = e => +e.grams >= 20 ? dot(densityClass(+e.kcal / +e.grams * 100)) : '';
 
 async function api(action, data) {
-  const r = await fetch(`api.php?action=${action}&tzdate=${todayStr()}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data || {}), credentials: 'same-origin',
-  });
+  let r;
+  try {
+    r = await fetch(`api.php?action=${action}&tzdate=${todayStr()}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {}), credentials: 'same-origin',
+    });
+  } catch (e) {
+    // Network down (offline app launch, server hiccup) — never throw out of
+    // api(): an uncaught rejection here white-screens the whole SPA.
+    return { ok: false, error: 'offline', offline: true };
+  }
   const j = await r.json().catch(() => ({ ok: false, error: 'Bad server response' }));
   if (r.status === 401 && action !== 'login' && action !== 'me') { S.user = null; render(); }
   return j;
@@ -599,9 +606,24 @@ function stepsBurnKcal(steps, day) {
   return Math.max(0, Math.round(kcal - walkKcal));
 }
 
+// Shown when the day summary can't be fetched (offline, server error) —
+// without this, renderHome/renderDiary throw before painting = frozen screen.
+function offlineScreen(title) {
+  shell(`<div class="screen">
+    <div class="screen-header"><div><div class="screen-title">${title}</div></div></div>
+    <div class="card" style="text-align:center">
+      <div style="margin:10px 0;color:var(--text3)">${ic('refresh', 40)}</div>
+      <h3 style="margin-bottom:6px">Can't reach the server</h3>
+      <div class="muted" style="margin-bottom:14px">Check your connection, then try again.</div>
+      <button class="btn" onclick="render()">Retry</button>
+    </div>
+  </div>`);
+}
+
 async function renderHome() {
   const p = S.profile;
   const [day, wr] = await Promise.all([api('day', { date: todayStr() }), api('weights')]);
+  if (!day || !Array.isArray(day.entries)) return offlineScreen('Home');
   S.day = day;
   const weights = wr.weights || [];
   const eaten = day.entries.reduce((a, e) => a + +e.kcal, 0);
@@ -799,7 +821,7 @@ function coachNudges(day, m) {
   // Step momentum (only when Health Connect gives us steps).
   if (m.steps != null && hour >= 12 && hour <= 20) {
     if (m.steps < 4000)
-      n.push(['steps', 'accent', `${m.steps.toLocaleString()} steps so far — a 15-minute walk adds ~1,700 more and earns back ~${Math.round(1700 * stepKcalPerStep(day))} kcal.`]);
+      n.push(['target', 'accent', `${m.steps.toLocaleString()} steps so far — a 15-minute walk adds ~1,700 more and earns back ~${Math.round(1700 * stepKcalPerStep(day))} kcal.`]);
     else if (m.steps >= 8000)
       n.push(['flame', 'orange', `${m.steps.toLocaleString()} steps today — excellent movement. That's ≈${m.stepBurn} kcal earned back.`]);
   }
@@ -928,6 +950,12 @@ function openAddSheet(meal, tab0) {
   const TAB_LBL = { search: 'Search foods', barcode: 'Scan a barcode (free)', photo: 'AI photo scan', meals: 'My saved meals', custom: 'Custom food' };
   sh.querySelector('#addTabLbl').textContent = TAB_LBL[tab];
   sh.querySelector('#addTab').querySelectorAll('button').forEach(b => b.onclick = () => {
+    // Leaving the barcode tab: stop the camera/scanner BEFORE swapping the
+    // body — otherwise the detector interval sees its <video> gone and calls
+    // closeSheet() (sheet vanishes), and ZXing keeps the camera light on.
+    if (S._camStream) { S._camStream.getTracks().forEach(t => t.stop()); S._camStream = null; }
+    if (S._zxing) { try { S._zxing.reset(); } catch (e) {} S._zxing = null; }
+    clearInterval(S._bcTimer);
     sh.querySelectorAll('#addTab button').forEach(x => x.classList.remove('on')); b.classList.add('on');
     tab = b.dataset.v; sh.querySelector('#addTabLbl').textContent = TAB_LBL[tab]; body();
   });
@@ -1219,6 +1247,7 @@ function shrinkImage(file, maxDim) {
 async function renderDiary() {
   if (!S.diaryDate) S.diaryDate = todayStr();
   const day = await api('day', { date: S.diaryDate });
+  if (!day || !Array.isArray(day.entries)) return offlineScreen('Diary');
   const p = S.profile;
   const tot = day.entries.reduce((a, e) => ({ kcal: a.kcal + +e.kcal, protein: a.protein + +e.protein, carbs: a.carbs + +e.carbs, fat: a.fat + +e.fat, fiber: a.fiber + +e.fiber, sugar: a.sugar + +(e.sugar || 0), sodium: a.sodium + +(e.sodium || 0), satfat: a.satfat + +(e.satfat || 0) }), { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0, satfat: 0 });
   const meals = { breakfast: [ic('sunrise', 16), 'Breakfast'], lunch: [ic('sun', 16), 'Lunch'], dinner: [ic('moon', 16), 'Dinner'], snacks: [ic('cookie', 16), 'Snacks'] };
@@ -1319,7 +1348,7 @@ async function renderDiary() {
             <span class="kc" style="margin-left:6px">${Math.round(kc)} kcal</span>
           </span></div>
         ${items.map(e => `<div class="food-row">
-          <div class="grow" data-edit="${e.id}" style="cursor:pointer"><div class="n">${entryDot(e)} ${esc(e.name)}</div><div class="d">${round1(e.grams)}g · P${round1(e.protein)} C${round1(e.carbs)} F${round1(e.fat)}</div></div>
+          <div class="grow" data-edit="${e.id}" style="cursor:pointer"><div class="n">${entryDot(e)} ${esc(e.name)}</div><div class="d">${+e.grams <= 1 ? '1 serving' : round1(e.grams) + 'g'} · P${round1(e.protein)} C${round1(e.carbs)} F${round1(e.fat)}</div></div>
           <span class="kcal">${Math.round(e.kcal)}</span>
           <button class="del" data-del="${e.id}">✕</button>
         </div>`).join('') || '<div class="tiny" style="padding:4px 0 8px">Nothing logged yet</div>'}
@@ -1375,11 +1404,15 @@ async function renderDiary() {
 }
 
 // Adjust a logged entry's portion (rescales macros) or delete it.
+// Recipes are logged with grams=1 as a "1 serving" sentinel (their weight is
+// unknown) — for those the portion input means SERVINGS, and the same ratio
+// math scales correctly.
 function openEntryEditor(e) {
+  const isServing = +e.grams <= 1;
   const per = g => Math.round(+e.kcal * (g / +e.grams)); // live kcal preview at new grams
   const sh = openSheet(`<h3>${esc(e.name)}</h3>
-    <div class="muted" style="margin-bottom:12px">Currently ${round1(e.grams)}g · ${Math.round(e.kcal)} kcal · P${round1(e.protein)} C${round1(e.carbs)} F${round1(e.fat)}</div>
-    <div class="field"><label>Portion (grams)</label><input id="edG" type="number" inputmode="decimal" value="${round1(e.grams)}"></div>
+    <div class="muted" style="margin-bottom:12px">Currently ${isServing ? '1 serving' : round1(e.grams) + 'g'} · ${Math.round(e.kcal)} kcal · P${round1(e.protein)} C${round1(e.carbs)} F${round1(e.fat)}</div>
+    <div class="field"><label>Portion (${isServing ? 'servings' : 'grams'})</label><input id="edG" type="number" inputmode="decimal" value="${round1(e.grams)}"></div>
     <div class="tiny" style="margin:-6px 0 14px">New total: <b id="edPreview">${Math.round(e.kcal)}</b> kcal</div>
     <button class="btn" id="edSave">Save portion</button>
     <button class="btn danger" id="edDel" style="margin-top:8px">Delete this entry</button>`);
@@ -1489,8 +1522,9 @@ async function renderFast() {
       const t = card.querySelector('.ring-center .big');
       if (t) t.textContent = fmtDur(Date.now() - start); else clearInterval(S.fastTimer);
     }, 1000);
-    const redraw = setInterval(() => {
-      if (!document.body.contains(card)) return clearInterval(redraw);
+    clearInterval(S._fastRedraw);
+    S._fastRedraw = setInterval(() => {
+      if (!document.body.contains(card)) return clearInterval(S._fastRedraw);
       draw();
     }, 60000);
   } else {
@@ -1622,7 +1656,7 @@ async function renderLearn() {
       <div class="screen-sub">One 2-minute lesson a day</div></div></div>
     <div class="card" style="text-align:center">
       <b style="font-size:22px">${readCount} / ${lessons.length}</b><div class="tiny">lessons completed</div>
-      <div class="bar" style="margin-top:10px"><i data-w="${readCount / lessons.length * 100}%" style="background:linear-gradient(90deg,var(--accent2),var(--accent));width:0"></i></div>
+      <div class="bar" style="margin-top:10px"><i data-w="${lessons.length ? readCount / lessons.length * 100 : 0}%" style="background:linear-gradient(90deg,var(--accent2),var(--accent));width:0"></i></div>
     </div>
     ${lessons.map(l => {
       const done = !!reads[l.id];
@@ -2627,6 +2661,7 @@ setInterval(reminderTick, 60000);
 // ══ ROUTER ════════════════════════════════════════════════════════════
 async function render() {
   clearInterval(S.fastTimer);
+  clearInterval(S._fastRedraw);
   if (S._resetToken) return renderReset();
   if (!S.user) return renderAuth();
   if (!+S.profile?.onboarded) return renderOnboarding();

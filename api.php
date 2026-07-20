@@ -60,12 +60,25 @@ case 'register': {
 
 case 'login': {
     $email = strtolower(trim((string)($in['email'] ?? '')));
+    // Brute-force throttle: 5 failed tries per email → 15-minute lockout.
+    $lf = db()->prepare("SELECT fails, last FROM login_fails WHERE email=?");
+    $lf->execute([$email]);
+    $f = $lf->fetch();
+    if ($f && (int)$f['fails'] >= 5 && time() - (int)$f['last'] < 900) {
+        fail('Too many failed attempts — try again in 15 minutes, or use "Forgot your password?"', 429);
+    }
     $st = db()->prepare("SELECT * FROM users WHERE email=?");
     $st->execute([$email]);
     $u = $st->fetch();
     if (!$u || !password_verify((string)($in['password'] ?? ''), $u['pass_hash'])) {
+        db()->prepare("INSERT INTO login_fails (email,fails,last) VALUES (?,1,?)
+            ON CONFLICT(email) DO UPDATE SET
+              fails = CASE WHEN login_fails.last < ? - 900 THEN 1 ELSE login_fails.fails + 1 END,
+              last = ?")
+          ->execute([$email, time(), time(), time()]);
         fail('Wrong email or password', 401);
     }
+    db()->prepare("DELETE FROM login_fails WHERE email=?")->execute([$email]);
     login_user((int)$u['id']);
     out(['ok' => true, 'user' => public_user($u), 'profile' => get_profile((int)$u['id']), 'settings' => get_settings((int)$u['id'])]);
 }
@@ -98,19 +111,27 @@ case 'request_reset': {
     $token = bin2hex(random_bytes(32));
     db()->prepare("UPDATE users SET reset_token=?, reset_expires=?, reset_requested=? WHERE id=?")
       ->execute([hash('sha256', $token), time() + 3600, time(), $u['id']]);
-    $host = preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST'] ?? 'localhost');
-    $scheme = !empty($_SERVER['HTTPS']) ? 'https' : 'http';
+    // Never build the reset link from HTTP_HOST — a spoofed Host header would
+    // put an attacker's domain in the victim's email (token theft on click).
+    // Localhost is allowed through for development only.
+    $reqHost = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $isLocal = (bool)preg_match('/^(localhost|127\.0\.0\.1)(:\d+)?$/', $reqHost);
+    $host = $isLocal ? $reqHost : 'health.mobasheri.us';
+    $scheme = $isLocal && empty($_SERVER['HTTPS']) ? 'http' : 'https';
     $dir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
-    $link = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . $dir . '/index.php?reset=' . $token;
+    $link = $scheme . '://' . $host . $dir . '/index.php?reset=' . $token;
+    $mailHost = preg_replace('/:\d+$/', '', $host);
     $sent = @mail(
         $email,
         'Thrive password reset',
         "Someone requested a password reset for your Thrive account.\n\n"
         . "Reset link (valid for 1 hour):\n$link\n\n"
         . "If this wasn't you, you can ignore this email.",
-        "From: Thrive <noreply@$host>\r\nContent-Type: text/plain; charset=UTF-8"
+        "From: Thrive <noreply@$mailHost>\r\nContent-Type: text/plain; charset=UTF-8"
     );
-    if (!$sent) fail('This server could not send email — ask the site owner to reset your password.');
+    // Same generic reply whether or not the account exists or mail worked —
+    // a distinct error here would confirm which emails are registered.
+    if (!$sent) error_log('Thrive: password-reset mail failed for a registered account');
     out(['ok' => true, 'message' => $generic]);
 }
 
@@ -770,7 +791,9 @@ case 'due_reminder': {
 // Ready-to-paste URL for a free external cron pinger (cron-job.org etc.) to
 // drive reminders when the host has no cron. Same key file cron.php uses.
 case 'cron_url': {
-    require_user();
+    // The cron token fires reminders for EVERY user, so only the site owner
+    // (first account) may see it. Other users' Settings simply hide the help.
+    if (require_user() !== 1) fail('Only the site owner can view the cron URL', 403);
     $keyFile = __DIR__ . '/data/cron.key';
     if (!is_file($keyFile)) { file_put_contents($keyFile, bin2hex(random_bytes(16))); @chmod($keyFile, 0600); }
     $key = trim((string)file_get_contents($keyFile));
@@ -795,6 +818,8 @@ case 'analyze_photo': {
 default: fail('Unknown action', 404);
 }
 } catch (Throwable $e) {
+    // Log the detail server-side; never echo internals (paths, SQL) to clients.
+    error_log('Thrive API error [' . ($action ?? '?') . ']: ' . $e->getMessage());
     http_response_code(500);
-    out(['ok' => false, 'error' => 'Server error: ' . $e->getMessage()]);
+    out(['ok' => false, 'error' => 'Server error — please try again']);
 }

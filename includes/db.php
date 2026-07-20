@@ -32,7 +32,7 @@ function ensure_cols(PDO $pdo, string $table, array $cols): bool {
     return $added;
 }
 
-const SCHEMA_VERSION = 23; // bump when schema or seed content changes
+const SCHEMA_VERSION = 24; // bump when schema or seed content changes
 
 function init_schema(PDO $pdo): void {
     // Fast path: schema already current — skip all migration/seed checks
@@ -186,6 +186,12 @@ function init_schema(PDO $pdo): void {
         token_hash TEXT NOT NULL UNIQUE,
         expires INTEGER NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )");
+    // Login brute-force throttle: failed attempts per email.
+    $pdo->exec("CREATE TABLE IF NOT EXISTS login_fails (
+        email TEXT PRIMARY KEY,
+        fails INTEGER NOT NULL DEFAULT 0,
+        last INTEGER NOT NULL DEFAULT 0
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS push_subs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
