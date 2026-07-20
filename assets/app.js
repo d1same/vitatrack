@@ -2651,16 +2651,22 @@ async function healthDiagnostics() {
   L.push(['Permission READ_WORKOUTS', yn(pmap.READ_WORKOUTS)]);
 
   const iso = d => d.toISOString();
-  const end = new Date(), start = new Date(Date.now() - 7 * 864e5);
-  let aggN = 0, aggSample = '—';
+  // Anchored to local midnight so buckets are calendar days (see syncHealthConnect).
+  const end = new Date();
+  const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - 6);
+  const dayKey = t => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  let aggN = 0, aggSample = '—', stepsToday = '0';
   try {
     const s = await HC('queryAggregated', { startDate: iso(start), endDate: iso(end), dataType: 'steps', bucket: 'day' });
     const rows = (s && s.aggregatedData || []).filter(b => b.value > 0);
     aggN = rows.length;
-    if (rows.length) aggSample = rows.slice(-3).map(b => String(b.startDate).slice(0, 10) + ': ' + Math.round(b.value)).join(' · ');
+    if (rows.length) aggSample = rows.slice(-3).map(b => dayKey(b.startDate) + ': ' + Math.round(b.value)).join(' · ');
+    const t = rows.find(b => dayKey(b.startDate) === todayStr());
+    stepsToday = t ? String(Math.round(t.value)) : 'NONE (today has no bucket)';
   } catch (e) { aggSample = 'ERROR ' + (e.message || String(e)); }
   L.push(['Step days (aggregated, 7d)', String(aggN)]);
   L.push(['Recent step days', aggSample]);
+  L.push(['Steps TODAY (' + todayStr() + ')', stepsToday]);
 
   // Raw records also reveal WHICH app is writing steps into Health Connect.
   let recN = 0, sources = '—';
@@ -2741,7 +2747,13 @@ async function syncHealthConnect(manual) {
     // Local calendar date (matches the app's todayStr) so today's steps land
     // on today — NOT toISOString(), which is UTC and shifts the day by the tz.
     const dayKey = t => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
-    const end = new Date(), start = new Date(Date.now() - 7 * 864e5);
+    // Health Connect slices day-buckets from the START instant, NOT from
+    // midnight. Passing "now minus 7 days" produced buckets running e.g.
+    // 11:52→11:52, so today's steps landed in a bucket labelled YESTERDAY and
+    // today never got a bucket at all — a permanent 0 steps on the home screen.
+    // Anchor to local midnight so the buckets are real calendar days.
+    const end = new Date();
+    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - 6);
     const metrics = [], workouts = [];
     let stepErr = '';
 
