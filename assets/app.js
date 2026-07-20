@@ -575,6 +575,10 @@ function sparkline(vals, { w = 130, h = 34, color = 'var(--accent)' } = {}) {
     <circle cx="${X(vals.length - 1)}" cy="${Y(vals[vals.length - 1])}" r="3" fill="${color}"/></svg>`;
 }
 
+// One activity tile (steps / workouts / sleep) — shared by Home and Diary.
+const statTile = (icn, color, val, lbl) =>
+  `<div class="stat-tile"><div class="emoji" style="color:var(--${color})">${ic(icn, 20)}</div><div class="v">${val}</div><div class="k">${lbl}</div></div>`;
+
 async function renderHome() {
   const p = S.profile;
   const [day, wr] = await Promise.all([api('day', { date: todayStr() }), api('weights')]);
@@ -643,14 +647,13 @@ async function renderHome() {
   const sleepH = bio.sleep ? +bio.sleep.v1 : null;
   const wk = day.workouts || [], wkKcal = wk.reduce((a, w) => a + (+w.kcal || 0), 0);
   const hasActivity = steps != null || sleepH != null || wk.length > 0;
-  const actTile = (icn, color, val, lbl) => `<div class="stat-tile"><div class="emoji" style="color:var(--${color})">${ic(icn, 20)}</div><div class="v">${val}</div><div class="k">${lbl}</div></div>`;
   const activityCard = `
     <div class="card" onclick="S.view='progress';render()" style="cursor:pointer">
       <div class="card-title" style="margin-bottom:12px"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('activity', 15)}</span>Activity today</div>
       <div class="grid3">
-        ${actTile('activity', 'accent', steps != null ? steps.toLocaleString() : '—', 'Steps')}
-        ${actTile('dumbbell', 'blue', wk.length || '—', 'Workout' + (wk.length === 1 ? '' : 's'))}
-        ${actTile('moon', 'purple', sleepH != null ? sleepH + 'h' : '—', 'Sleep')}
+        ${statTile('activity', 'accent', steps != null ? steps.toLocaleString() : '—', 'Steps')}
+        ${statTile('dumbbell', 'blue', wk.length || '—', 'Workout' + (wk.length === 1 ? '' : 's'))}
+        ${statTile('moon', 'purple', sleepH != null ? sleepH + 'h' : '—', 'Sleep')}
       </div>
       ${hasActivity
         ? (wkKcal > 0 ? `<div class="tiny" style="margin-top:10px;color:var(--text2)">${wk.length} workout${wk.length === 1 ? '' : 's'} · ${Math.round(wkKcal)} kcal burned</div>` : '')
@@ -1136,6 +1139,24 @@ async function renderDiary() {
       <span>${dd.toLocaleDateString(undefined, { weekday: 'short' })[0]}</span><b>${dd.getDate()}</b></button>`;
   }).join('');
 
+  // Activity for the SELECTED day — steps & sleep come from the Health Connect
+  // sync, workouts and water from the log. Always shown so an empty day reads
+  // as "nothing recorded" rather than looking like a missing feature.
+  const dBio = day.bio || {};
+  const dSteps = dBio.steps ? Math.round(+dBio.steps.v1) : null;
+  const dSleep = dBio.sleep ? +dBio.sleep.v1 : null;
+  const dWk = day.workouts || [];
+  const dBurned = dWk.reduce((a, w) => a + (+w.kcal || 0), 0);
+  const dHasActivity = dSteps != null || dSleep != null || dWk.length > 0 || +day.water > 0;
+  const footBits = [];
+  if (+day.water > 0) footBits.push(fmtWater(day.water) + ' water');
+  if (dBurned > 0) footBits.push(Math.round(dBurned) + ' kcal burned');
+  const activityFoot = footBits.length ? footBits.join(' · ')
+    : dHasActivity ? ''
+    : (isToday
+      ? 'No activity yet today — steps arrive when Health Connect syncs.'
+      : 'Nothing recorded for this day.');
+
   // Noom-style color split by calories
   const split = { g: 0, y: 0, o: 0 };
   day.entries.forEach(e => { if (+e.grams >= 20) split[densityClass(+e.kcal / +e.grams * 100)] += +e.kcal; });
@@ -1180,6 +1201,16 @@ async function renderDiary() {
           ? 'Limits tightened for your health profile: ' + lim.adjusted.join(', ') + '. Fiber is a “more is better” target.'
           : 'General daily guidelines — sugar & sat-fat limits matter most; fiber is a “more is better” target.'}</div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px"><span class="icon" style="background:var(--accent-soft);color:var(--accent)">${ic('activity', 15)}</span>Activity</div>
+      <div class="grid3">
+        ${statTile('activity', 'accent', dSteps != null ? dSteps.toLocaleString() : '—', 'Steps')}
+        ${statTile('dumbbell', 'blue', dWk.length || '—', 'Workout' + (dWk.length === 1 ? '' : 's'))}
+        ${statTile('moon', 'purple', dSleep != null ? dSleep + 'h' : '—', 'Sleep')}
+      </div>
+      ${activityFoot ? `<div class="tiny" style="margin-top:10px;color:var(--text2)">${activityFoot}</div>` : ''}
     </div>
 
     ${Object.entries(meals).map(([key, [em, label]]) => {
