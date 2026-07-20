@@ -1290,7 +1290,9 @@ function minAgoFromTime(v) {
   const now = new Date(), s = new Date();
   s.setHours(h, m, 0, 0);
   if (s > now) s.setDate(s.getDate() - 1);
-  return Math.max(0, Math.min(72 * 60, Math.round((now - s) / 60000)));
+  // floor, not round: rounding up lands the stored start a minute BEFORE the
+  // minute the user picked (07:00 would display as 06:59).
+  return Math.max(0, Math.min(72 * 60, Math.floor((now - s) / 60000)));
 }
 const fmtAgo = min => min < 60 ? min + ' min ago' : round1(min / 60) + 'h ago';
 
@@ -1349,7 +1351,8 @@ async function renderFast() {
         ${ringSVG(210, 15, pct, done ? 'var(--accent)' : 'var(--purple)',
           `<div class="big" style="font-size:24px">${fmtDur(el)}</div><div class="lbl">${done ? 'target reached' : 'of ' + active.target_hours + 'h'}</div>`)}
         <div class="fast-stage"><span class="em" style="color:var(--purple)">${ic(stage[1], 22)}</span><span style="text-align:left"><b>${stage[2]}</b> — ${stage[3]}</span></div>
-        <div class="tiny" style="margin:10px 0 12px">Started ${new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ends ${new Date(start + targetMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · <u id="fAdjust" style="cursor:pointer">adjust start</u></div>
+        <div class="tiny" style="margin:10px 0 12px">Started ${new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ends ${new Date(start + targetMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · water, black coffee &amp; plain tea are OK</div>
+        <button class="btn small secondary" id="fAdjust" style="width:100%;margin-bottom:8px">${ic('timer', 14)} Change start time</button>
         <button class="btn ${done ? '' : 'danger'}" id="fEnd">${done ? 'Complete fast' : 'End fast early'}</button>`;
       animateRings(card);
       card.querySelector('#fAdjust').onclick = () => adjustFastStart(hhmm(new Date(start)));
@@ -2207,6 +2210,7 @@ async function renderSettings() {
       <div class="muted" style="margin-bottom:10px">Bring your <b>steps and workouts</b> in from <b>Health Connect</b> — the Android hub that gathers data from Samsung Health, Fitbit, your ring or watch and most fitness apps. Needs the <b>Thrive Android app</b> (More → Get the app); it syncs automatically each time you open it.</div>
       <div id="syncStatus" class="tiny" style="margin-bottom:10px">Checking sync status…</div>
       <button class="btn small secondary" id="sSyncNow" style="width:100%">Sync Health Connect now</button>
+      <button class="btn small secondary" id="sSyncDiag" style="width:100%;margin-top:8px">Diagnose Health Connect</button>
       <div id="syncHint" class="tiny muted" style="margin-top:8px"></div>
     </div>
 
@@ -2391,6 +2395,12 @@ async function renderSettings() {
     await syncHealthConnect(true);
     syncBtn.disabled = false; syncBtn.textContent = 'Sync Health Connect now';
   };
+  const diagBtn = $('#sSyncDiag');
+  if (diagBtn) diagBtn.onclick = async () => {
+    diagBtn.disabled = true; diagBtn.textContent = 'Checking…';
+    await healthDiagnostics();
+    diagBtn.disabled = false; diagBtn.textContent = 'Diagnose Health Connect';
+  };
   api('sync_status').then(r => {
     const el = $('#syncStatus'); if (!el || !r.ok) return;
     const srcs = Object.entries(r.sources || {});
@@ -2539,6 +2549,90 @@ function hcPermMap(pr) {
   const p = pr && pr.permissions;
   if (Array.isArray(p)) return Object.assign({}, ...p.filter(Boolean));
   return p && typeof p === 'object' ? p : {};
+}
+
+// Read-only probe of the whole Health Connect chain. Shows the RAW answers so a
+// failing sync says exactly which link is broken: no bridge, HC missing,
+// permission not granted, or simply no step data written by any app.
+async function healthDiagnostics() {
+  const L = [];
+  const yn = b => b ? 'YES' : 'NO';
+  L.push(['Native app (Capacitor)', yn(inNativeApp())]);
+  L.push(['Health bridge', yn(hasHealthPlugin())]);
+  if (!hasHealthPlugin()) {
+    L.push(['Verdict', 'Not running inside the Thrive Android app — install thrive.apk and open Thrive from its icon.']);
+    return showDiag(L);
+  }
+  let avail = null;
+  try { avail = await HC('isHealthAvailable'); } catch (e) { L.push(['isHealthAvailable ERROR', e.message || String(e)]); }
+  L.push(['Health Connect installed', yn(avail && avail.available)]);
+  if (!avail || !avail.available) {
+    L.push(['Verdict', 'Health Connect app is missing — install it from the Play Store.']);
+    return showDiag(L);
+  }
+
+  const perms = { permissions: ['READ_STEPS', 'READ_WORKOUTS', 'READ_ACTIVE_CALORIES', 'READ_HEART_RATE'] };
+  let pmap = {};
+  try { pmap = hcPermMap(await HC('checkHealthPermissions', perms)); }
+  catch (e) { L.push(['checkHealthPermissions ERROR', e.message || String(e)]); }
+  L.push(['Permission READ_STEPS', yn(pmap.READ_STEPS)]);
+  L.push(['Permission READ_WORKOUTS', yn(pmap.READ_WORKOUTS)]);
+
+  const iso = d => d.toISOString();
+  const end = new Date(), start = new Date(Date.now() - 7 * 864e5);
+  let aggN = 0, aggSample = '—';
+  try {
+    const s = await HC('queryAggregated', { startDate: iso(start), endDate: iso(end), dataType: 'steps', bucket: 'day' });
+    const rows = (s && s.aggregatedData || []).filter(b => b.value > 0);
+    aggN = rows.length;
+    if (rows.length) aggSample = rows.slice(-3).map(b => String(b.startDate).slice(0, 10) + ': ' + Math.round(b.value)).join(' · ');
+  } catch (e) { aggSample = 'ERROR ' + (e.message || String(e)); }
+  L.push(['Step days (aggregated, 7d)', String(aggN)]);
+  L.push(['Recent step days', aggSample]);
+
+  // Raw records also reveal WHICH app is writing steps into Health Connect.
+  let recN = 0, sources = '—';
+  try {
+    const rec = await HC('queryRecords', { startDate: iso(start), endDate: iso(end), dataType: 'steps' });
+    const rows = (rec && rec.records) || [];
+    recN = rows.length;
+    const set = [...new Set(rows.map(r => r.sourceBundleId).filter(Boolean))];
+    if (set.length) sources = set.join(', ');
+  } catch (e) { sources = 'ERROR ' + (e.message || String(e)); }
+  L.push(['Raw step records (7d)', String(recN)]);
+  L.push(['Apps writing steps', sources]);
+
+  let wkN = 0;
+  try {
+    const w = await HC('queryWorkouts', { startDate: iso(start), endDate: iso(end), includeHeartRate: false, includeRoute: false, includeSteps: false });
+    wkN = ((w && w.workouts) || []).length;
+  } catch (e) { L.push(['queryWorkouts ERROR', e.message || String(e)]); }
+  L.push(['Workouts (7d)', String(wkN)]);
+
+  L.push(['Verdict', !pmap.READ_STEPS
+    ? 'Steps permission is NOT granted. Open Health Connect → App permissions → Thrive → allow Steps & Exercise.'
+    : (aggN === 0 && recN === 0)
+      ? 'Permission is fine, but NO app is writing steps into Health Connect. Open your step app (Samsung Health / Google Fit / Fitbit) → settings → connect it to Health Connect.'
+      : 'Health Connect has data and Thrive can read it — tap "Sync Health Connect now".']);
+  showDiag(L);
+}
+
+function showDiag(rows) {
+  const txt = rows.map(([k, v]) => k + ': ' + v).join('\n');
+  openSheet(`<h3 style="margin-bottom:6px">Health Connect diagnostics</h3>
+    <div class="muted" style="margin-bottom:14px">Exactly what Thrive can see right now.</div>
+    ${rows.map(([k, v]) => {
+      const bad = v === 'NO' || String(v).startsWith('ERROR');
+      const isVerdict = k === 'Verdict';
+      return `<div class="rem-line" style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start${isVerdict ? ';margin-top:10px;border-top:1px solid var(--border);padding-top:12px' : ''}">
+        <span class="tiny" style="flex:none;color:var(--text2)">${esc(k)}</span>
+        <b class="tiny" style="text-align:right;color:${isVerdict ? 'var(--accent)' : bad ? 'var(--red)' : 'var(--text)'}">${esc(String(v))}</b></div>`;
+    }).join('')}
+    <button class="btn small secondary" id="dgCopy" style="width:100%;margin-top:16px">Copy report</button>`);
+  $('#dgCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText(txt); toast('Report copied ✓'); }
+    catch (e) { toast('Copy failed — screenshot this instead'); }
+  };
 }
 
 async function syncHealthConnect(manual) {
