@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4",
+  "versionCode": 6,
+  "versionName": "1.5",
   "url": "https://health.mobasheri.us/thrive.apk",
-  "notes": "Much richer Health Connect sync: sleep, heart rate, resting heart rate, weight, body fat, blood pressure, blood glucose and oxygen saturation now sync alongside steps and workouts. Health Connect will ask you to allow the new data types."
+  "notes": "Heart-friendlier keto recipe filter: open Recipes and tap Heart-friendlier to see lower-saturated-fat keto meals (lean protein, olive oil, avocado, and vegetables)."
 }
