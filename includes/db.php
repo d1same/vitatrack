@@ -32,7 +32,7 @@ function ensure_cols(PDO $pdo, string $table, array $cols): bool {
     return $added;
 }
 
-const SCHEMA_VERSION = 24; // bump when schema or seed content changes
+const SCHEMA_VERSION = 25; // bump when schema or seed content changes
 
 function init_schema(PDO $pdo): void {
     // Fast path: schema already current — skip all migration/seed checks
@@ -135,7 +135,8 @@ function init_schema(PDO $pdo): void {
         lowsodium INTEGER DEFAULT 0,  -- blood-pressure-friendly
         diabetic INTEGER DEFAULT 0,   -- low sugar, moderate carbs
         cuisine TEXT DEFAULT '',
-        veg INTEGER DEFAULT 0         -- 0 omnivore, 1 vegetarian, 2 vegan
+        veg INTEGER DEFAULT 0,        -- 0 omnivore, 1 vegetarian, 2 vegan
+        lower_sat_fat INTEGER DEFAULT 0 -- 1 = heart-friendlier keto (lean protein, olive oil, avocado)
     )");
     $pdo->exec("CREATE TABLE IF NOT EXISTS exercises (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -212,6 +213,8 @@ function init_schema(PDO $pdo): void {
     ensure_cols($pdo, 'foods', ['serving_g' => 'REAL', 'serving_label' => 'TEXT']);
     ensure_cols($pdo, 'diary', ['sugar' => 'REAL DEFAULT 0', 'sodium' => 'REAL DEFAULT 0', 'satfat' => 'REAL DEFAULT 0']);
     $recipesUpgraded = ensure_cols($pdo, 'recipes', ['diet' => "TEXT DEFAULT 'keto'", 'heart' => 'INTEGER DEFAULT 0', 'lowsodium' => 'INTEGER DEFAULT 0', 'diabetic' => 'INTEGER DEFAULT 0', 'cuisine' => "TEXT DEFAULT ''", 'veg' => 'INTEGER DEFAULT 0']);
+    // Own call so adding the flag does not wipe and reseed every recipe (that would change ids).
+    ensure_cols($pdo, 'recipes', ['lower_sat_fat' => 'INTEGER DEFAULT 0']);
     $foodsUpgraded = $foodsUpgraded || $pdo->query("SELECT COUNT(*) c FROM foods WHERE user_id IS NULL AND name LIKE 'Ghormeh%'")->fetch()['c'] == 0;
     $recipesUpgraded = $recipesUpgraded || $pdo->query("SELECT COUNT(*) c FROM recipes WHERE name IN ('Protein Pancakes','Shakshuka','Chana Masala')")->fetch()['c'] < 3;
     ensure_cols($pdo, 'users', ['reset_token' => 'TEXT', 'reset_expires' => 'INTEGER', 'reset_requested' => 'INTEGER']);
@@ -233,6 +236,8 @@ function seed(PDO $pdo, bool $reseedFoods = false, bool $reseedRecipes = false):
     if ($pdo->query("SELECT COUNT(*) c FROM exercises")->fetch()['c'] == 0) seed_exercises($pdo);
     if ($pdo->query("SELECT COUNT(*) c FROM lessons")->fetch()['c'] == 0) seed_lessons($pdo);
     import_usda_foods($pdo);
+    // Additive only — existing installs gain these recipes without deleting rows or user data.
+    seed_lower_sat_fat_recipes($pdo);
 }
 
 // Bulk-import the bundled USDA FNDDS database (includes/food_db.csv.gz,
@@ -506,6 +511,35 @@ function seed_recipes(PDO $pdo): void {
     $vs = $pdo->prepare("UPDATE recipes SET veg=? WHERE name=?");
     foreach ($vegetarian as $n) $vs->execute([1, $n]);
     foreach ($vegan as $n) $vs->execute([2, $n]);
+}
+
+// Heart-friendlier keto: lean protein, non-starchy veg, fat from olive oil,
+// avocado, or fatty fish. Inserts any missing by name — never deletes recipes
+// or user rows, so meal-plan ids and diary entries stay put on deploy.
+function seed_lower_sat_fat_recipes(PDO $pdo): void {
+    // [name, tag, minutes, kcal, protein, carbs, fat, fiber, ingredients, instructions, emoji,
+    //  diet, heart, lowsodium, diabetic, cuisine, veg, lower_sat_fat]
+    $recipes = [
+        ['Lemon-Garlic Chicken & Broccoli','dinner',25,430,46,11,20,5,"150g chicken breast|180g broccoli|1 tbsp olive oil|1 lemon|2 garlic cloves|Salt, pepper, chili flakes","Toss the broccoli with half the oil, garlic and a pinch of salt. Roast at 220°C/425°F for 12 min. Season the chicken and sear it in the rest of the oil, 5-6 min per side. Squeeze lemon over both and serve.",'🥦','keto',1,1,1,'',0,1],
+        ['Baked Salmon & Asparagus','dinner',25,430,34,8,29,4,"150g salmon fillet|180g asparagus|2 tsp olive oil|1 lemon|Garlic, dill, black pepper","Heat the oven to 200°C/400°F. Toss the asparagus with half the oil. Lay the salmon beside it, brush with the rest, and add lemon slices, garlic and pepper. Bake 12-14 min, until the salmon flakes. Finish with dill.",'🐟','keto',1,1,1,'',0,1],
+        ['Turkey Lettuce Wraps','lunch',15,380,42,8,18,5,"150g lean ground turkey|6 large lettuce leaves|1/2 avocado|Cucumber, scallion|1 tsp olive oil|Lime, cumin, salt","Brown the turkey in the olive oil with cumin and a pinch of salt, 6-8 min. Spoon into lettuce leaves with cucumber, scallion and avocado. Finish with lime.",'🥬','keto',1,1,1,'',0,1],
+        ['Shrimp Zucchini Stir-Fry','dinner',15,350,42,9,15,3,"180g shrimp|1 large zucchini|1/2 bell pepper|1 tbsp olive oil|Garlic, chili flakes, lemon","Slice the zucchini and pepper. Stir-fry them in the olive oil for 3 min. Add garlic, chili and the shrimp and cook 2-3 min, until the shrimp are pink. Finish with lemon.",'🦐','keto',1,1,1,'',0,1],
+        ['Tuna & Yogurt over Greens','lunch',10,390,42,12,18,6,"1 can tuna in water, drained|80g nonfat Greek yogurt|1/2 avocado|A big handful of spinach or mixed greens|Cucumber|1 tsp olive oil|Lemon, dill, black pepper","Stir the tuna with the yogurt, lemon, dill and pepper. Pile it over the greens and cucumber. Add the avocado and a drizzle of olive oil.",'🥗','keto',1,1,1,'',0,1],
+        ['Chicken Cauliflower-Rice Bowl','dinner',25,420,46,12,21,7,"150g chicken breast|200g cauliflower rice|1/4 avocado|2 tsp olive oil|Lime, cilantro, garlic, paprika","Season the chicken and sear it in 1 tsp oil, 5-6 min per side. Sauté the cauliflower rice in the rest of the oil with garlic, about 5 min. Slice the chicken over the rice and top with avocado, cilantro and lime.",'🍚','keto',1,1,1,'',0,1],
+        ['Lemon Herb Cod & Green Beans','dinner',25,350,40,10,16,4,"180g cod or other white fish|120g green beans|1 tbsp olive oil|Lemon, parsley, garlic|Salt, pepper","Toss the green beans with half the oil, garlic and a pinch of salt. Roast at 200°C/400°F for 10 min. Add the fish, brush with the rest of the oil, lemon and parsley, and roast 10-12 min more.",'🐠','keto',1,1,1,'',0,1],
+        ['Olive-Oil Eggs & Spinach','breakfast',10,290,16,8,21,4,"2 eggs|A big handful of spinach|6 cherry tomatoes|1/4 avocado|1 tsp olive oil|Salt, pepper","Wilt the spinach and tomatoes in the olive oil. Crack in the eggs and cook until the whites are set. Serve with the avocado.",'🍳','keto',1,1,1,'',1,1],
+        ['Garlic Turkey & Zucchini Skillet','dinner',20,390,44,9,18,3,"150g lean ground turkey|1 zucchini|1/2 bell pepper|1 tbsp olive oil|Garlic, Italian herbs, salt","Brown the turkey in the olive oil with garlic and herbs. Add the sliced zucchini and pepper and cook 5-6 min, until just tender. Season and serve.",'🦃','keto',1,1,1,'',0,1],
+        ['Sheet-Pan Chicken, Peppers & Zucchini','dinner',30,420,46,10,20,3,"150g chicken breast|1 bell pepper|1 small zucchini|1 tbsp olive oil|Lemon, oregano, garlic, paprika","Toss the sliced pepper and zucchini with the oil, lemon, garlic and oregano. Nestle in the seasoned chicken. Roast at 220°C/425°F for 18-22 min, until the chicken is cooked through.",'🫑','keto',1,1,1,'',0,1],
+        ['Shrimp Avocado Salad','lunch',12,370,38,10,20,6,"160g shrimp|1/2 avocado|Mixed greens|Cucumber|2 tsp olive oil|Lemon, dill, pepper","Cook the shrimp in a dry nonstick pan, 2-3 min, until pink. Toss the greens and cucumber with the olive oil and lemon. Top with the shrimp and avocado.",'🥑','keto',1,1,1,'',0,1],
+        ['Turkey Pepper Breakfast Skillet','breakfast',15,360,38,8,17,4,"120g lean ground turkey|1/2 bell pepper|A handful of spinach|1 egg|1/4 avocado|1 tsp olive oil|Paprika, salt","Brown the turkey in the olive oil with paprika. Add the pepper and spinach until soft. Make a well, crack in the egg, cover 2 min until the white sets. Serve with avocado.",'🍳','keto',1,1,1,'',0,1],
+        ['Cucumber Tuna Bites','snack',8,200,28,6,6,1,"100g tuna in water, drained|1 cucumber|50g nonfat Greek yogurt|1 tsp olive oil|Dill, lemon, pepper","Halve the cucumber lengthwise and scoop a little out. Mix the tuna with the yogurt, olive oil, lemon and dill, and fill the boats.",'🥒','keto',1,1,1,'',0,1],
+    ];
+    $have = array_column($pdo->query("SELECT name FROM recipes")->fetchAll(), 'name');
+    $st = $pdo->prepare("INSERT INTO recipes (name,tag,minutes,kcal,protein,carbs,fat,fiber,ingredients,instructions,emoji,diet,heart,lowsodium,diabetic,cuisine,veg,lower_sat_fat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    foreach ($recipes as $r) {
+        if (in_array($r[0], $have, true)) continue;
+        $st->execute($r);
+    }
 }
 
 function seed_exercises(PDO $pdo): void {

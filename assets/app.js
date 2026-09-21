@@ -2050,7 +2050,7 @@ function kSwap(date, slot) {
     q = (q || '').trim().toLowerCase();
     let list;
     if (q) {
-      list = S.recipes.filter(r => (r.name + ' ' + r.diet + ' ' + (r.cuisine || '') + ' ' + r.tag).toLowerCase().includes(q));
+      list = S.recipes.filter(r => (r.name + ' ' + r.diet + ' ' + (r.cuisine || '') + ' ' + r.tag + (+r.lower_sat_fat ? ' heart-friendlier lower sat fat' : '')).toLowerCase().includes(q));
     } else {
       // default: recipes for this slot, diet-matching first
       const slotR = S.recipes.filter(r => r.tag === slot);
@@ -2119,7 +2119,8 @@ function recipeBadges(r, conds, all = false) {
   let out = `<span class="badge ${cls}">${lbl}</span>`;
   if (+r.veg === 2) out += '<span class="badge green">Vegan</span>';
   else if (+r.veg === 1) out += '<span class="badge green">Vegetarian</span>';
-  if (+r.heart) out += '<span class="badge green">Heart-smart</span>';
+  if (+r.lower_sat_fat) out += '<span class="badge green">Lower sat fat</span>';
+  else if (+r.heart) out += '<span class="badge green">Heart-smart</span>';
   if (+r.lowsodium && (all || conds.includes('hypertension'))) out += '<span class="badge blue">Low salt</span>';
   if (+r.diabetic && (all || conds.includes('diabetes'))) out += '<span class="badge purple">Low sugar</span>';
   return out;
@@ -2143,10 +2144,11 @@ async function renderRecipes() {
   const buildList = () => {
     const q = (S._recipeQ || '').trim().toLowerCase();
     let l = S.recipes.filter(r => (tag === 'all' || r.tag === tag) && dietOk(r) && condOk(r));
+    if (S._recipeLowerSat) l = l.filter(r => +r.lower_sat_fat);
     if (S._recipeVeg) l = l.filter(r => +r.veg >= 1);
     if (S._recipeCuisine) l = l.filter(r => r.cuisine === S._recipeCuisine);
     if (S._recipeFavOnly) l = l.filter(isFav);
-    if (q) l = l.filter(r => (r.name + ' ' + r.diet + ' ' + (r.cuisine || '') + ' ' + r.tag + ' ' + (r.ingredients || '')).toLowerCase().includes(q));
+    if (q) l = l.filter(r => (r.name + ' ' + r.diet + ' ' + (r.cuisine || '') + ' ' + r.tag + ' ' + (r.ingredients || '') + (+r.lower_sat_fat ? ' heart-friendlier lower sat fat' : '')).toLowerCase().includes(q));
     return [...l.filter(isFav), ...l.filter(r => !isFav(r))];
   };
 
@@ -2160,11 +2162,13 @@ async function renderRecipes() {
     </div>
     <div class="chips" style="margin-bottom:14px">${tags.map(t =>
       `<button class="chip ${t === tag ? 'on' : ''}" data-t="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+      <button class="chip ${S._recipeLowerSat ? 'on' : ''}" id="lowerSatChip">${ic('heartpulse', 13)} Heart-friendlier</button>
       ${conds.length ? `<button class="chip ${S._recipeSafe ? 'on' : ''}" id="safeChip">${ic('heartpulse', 13)} Safe for me</button>` : ''}
       <button class="chip ${S._recipeVeg ? 'on' : ''}" id="vegChip">${ic('leaf', 13)} Veggie</button>
       <button class="chip ${S._recipeFavOnly ? 'on' : ''}" id="favChip">${ic('heart', 13)} Favorites${S.recipeFavs.size ? ' (' + S.recipeFavs.size + ')' : ''}</button>
       ${cuisines.map(c => `<button class="chip ${S._recipeCuisine === c ? 'on' : ''}" data-cuisine="${c}">${c[0].toUpperCase() + c.slice(1)}</button>`).join('')}
     </div>
+    ${S._recipeLowerSat ? '<div class="tiny" style="margin:-6px 0 12px">Lean protein, olive oil, avocado, and plenty of vegetables.</div>' : ''}
     <div id="recipeList"></div>
   </div>`);
 
@@ -2193,6 +2197,12 @@ async function renderRecipes() {
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { S._recipeTag = b.dataset.t; render(); });
   const sc = $('#safeChip');
   if (sc) sc.onclick = () => { S._recipeSafe = !S._recipeSafe; render(); };
+  $('#lowerSatChip').onclick = () => {
+    S._recipeLowerSat = !S._recipeLowerSat;
+    // These recipes are keto. Balanced view would hide the whole set.
+    if (S._recipeLowerSat && S._recipeDiet === 'balanced') S._recipeDiet = 'keto';
+    render();
+  };
   $('#vegChip').onclick = () => { S._recipeVeg = !S._recipeVeg; render(); };
   $('#favChip').onclick = () => { S._recipeFavOnly = !S._recipeFavOnly; render(); };
   document.querySelectorAll('[data-cuisine]').forEach(b => b.onclick = () => {
